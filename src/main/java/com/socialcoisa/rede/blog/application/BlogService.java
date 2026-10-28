@@ -83,8 +83,8 @@ public class BlogService {
 
 	/** Vitrine: os blogs criados, mais recentes primeiro. */
 	@Transactional(readOnly = true)
-	public List<BlogSummaryView> directory(int limit) {
-		return blogs.findAll(limit).stream()
+	public List<BlogSummaryView> directory(String query, int limit) {
+		return blogs.findAll(query, limit).stream()
 			// Blog de conta banida sai da vitrine (o perfil já dá 404).
 			.filter(blog -> !sanctionGate.banned(blog.userId()))
 			.filter(blog -> !suspiciousText.matches(blog.title(), blog.slug()))

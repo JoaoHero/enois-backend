@@ -44,10 +44,13 @@ class MentorPersistenceAdapter implements MentorRepository {
 	}
 
 	@Override
-	public List<Mentor> findAll(String expertise, Instant before, int limit) {
+	public List<Mentor> findAll(String expertise, String query, Instant before, int limit) {
 		PageRequest page = PageRequest.of(0, limit);
 		List<MentorJpaEntity> entities;
-		if (StringUtils.hasText(expertise)) {
+		if (StringUtils.hasText(query)) {
+			entities = springData.findByQuery(com.socialcoisa.rede.shared.web.LikePattern.contains(query),
+				com.socialcoisa.rede.shared.web.LikePattern.contains(expertise), before, page);
+		} else if (StringUtils.hasText(expertise)) {
 			entities = springData.findByExpertise(expertise, before, page);
 		} else {
 			entities = springData.findAllBefore(before, page);
