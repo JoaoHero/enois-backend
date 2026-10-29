@@ -69,6 +69,14 @@ class PostPersistenceAdapter implements PostRepository, SocialPostCountReader {
 	}
 
 	@Override
+	public List<Post> findActiveWithLinksSince(Instant since, int limit) {
+		return repository.findWithLinksSince(PostStatus.ACTIVE, since, PageRequest.of(0, Math.max(1, limit)))
+			.stream()
+			.map(PostJpaEntity::toDomain)
+			.toList();
+	}
+
+	@Override
 	public List<Post> findActiveByAuthors(Set<UserId> authorIds, Instant before, int limit) {
 		if (authorIds == null || authorIds.isEmpty()) {
 			return List.of();

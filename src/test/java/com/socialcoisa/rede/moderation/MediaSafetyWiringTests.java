@@ -14,6 +14,8 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.socialcoisa.rede.moderation.application.LinkSafetyService;
+import com.socialcoisa.rede.moderation.application.LinkSafetySweepWorker;
 import com.socialcoisa.rede.moderation.application.MediaSafetyService;
 import com.socialcoisa.rede.moderation.application.MediaSafetySweepWorker;
 import com.socialcoisa.rede.shared.web.TestAuthHelper;
@@ -36,6 +38,12 @@ class MediaSafetyWiringTests {
 
 	@Autowired
 	private MediaSafetySweepWorker sweep;
+
+	@Autowired
+	private LinkSafetyService linkSafety;
+
+	@Autowired
+	private LinkSafetySweepWorker linkSweep;
 
 	@Autowired
 	private JdbcTemplate jdbc;
@@ -66,6 +74,27 @@ class MediaSafetyWiringTests {
 	void theSweepRunsWithoutBlowingUpTheBoot() {
 		// Não deve lançar: a varredura é melhor esforço e o app já está de pé.
 		assertThat(sweep.sweep()).isGreaterThanOrEqualTo(0);
+	}
+
+	@Test
+	void theLinkBarrierIsWiredIntoTheApplication() {
+		assertThat(linkSafety).isNotNull();
+		assertThat(linkSafety.enabled()).isTrue();
+		assertThat(linkSweep).isNotNull();
+	}
+
+	@Test
+	void theLinkLedgerTableExists() {
+		// V200 aplicou: sem a tabela, o ledger de destino cai e o link seria visitado a cada rodada.
+		Integer colunas = jdbc.queryForObject(
+			"select count(*) from information_schema.columns where table_name = 'LINK_SAFETY_CHECKS'",
+			Integer.class);
+		assertThat(colunas).isNotNull().isGreaterThanOrEqualTo(9);
+	}
+
+	@Test
+	void theLinkSweepRunsWithoutBlowingUpTheBoot() {
+		assertThat(linkSweep.sweep()).isGreaterThanOrEqualTo(0);
 	}
 
 	@Test

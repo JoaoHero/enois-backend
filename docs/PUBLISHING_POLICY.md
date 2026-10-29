@@ -5,6 +5,18 @@
 genuína. Automação é bem-vinda para *organizar informação* (importar vagas, sincronizar avisos),
 nunca para *produzir engajamento*.
 
+## Conteúdo humano
+
+A rede é para gente: **quem publica responde pelo que publica**. A diretriz de conteúdo (lida pelo
+modelo de triagem, diretriz 8 em `ModerationAiService.systemPrompt`) proíbe a conta que existe para
+publicar **saída de máquina sem pessoa por trás** — texto que se declara gerado por IA, resposta a
+prompt, postura de assistente, volume e formato de robô, propaganda automática de ferramenta de IA.
+Usar IA como **ferramenta** (revisar um texto, corrigir gramática, tirar dúvida) não é infração.
+
+Conteúdo **sexual explícito é zero tolerância** e não tem versão "soft" aceitável — vale para foto,
+vídeo, desenho e arte gerada por IA (diretriz 9). O que chega confirmado é removido e a conta
+banida; ver `MODERACAO-MIDIA.md` e `MODERACAO-LINKS.md`.
+
 ## Permitido
 - **Criar e agendar posts pela funcionalidade oficial do Énóis**, em fluxo interativo, com o próprio
   usuário no controle (pode editar, reagendar ou cancelar antes da publicação).
