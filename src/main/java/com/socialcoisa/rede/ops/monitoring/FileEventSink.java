@@ -1,8 +1,8 @@
 package com.socialcoisa.rede.ops.monitoring;
 
-import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -14,8 +14,10 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.Predicate;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,6 +41,10 @@ class FileEventSink {
 	private static final Logger LOG = LoggerFactory.getLogger(FileEventSink.class);
 	private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 	private static final int MAX_LINE = 16_384;
+	/** Bloco da leitura reversa; linhas inteiras são decodificadas, o resto fica no carry. */
+	private static final int BLOCK = 64 * 1024;
+	/** Teto de linhas varridas por consulta (paginação profunda é limitada por latência). */
+	private static final int MAX_SCAN_LINES = 500_000;
 
 	private final Path dir;
 	private final ObjectMapper mapper;
@@ -103,12 +109,43 @@ class FileEventSink {
 		}
 	}
 
-	/** Lê os dias mais novos primeiro, do fim para o começo, até o limite. */
-	List<MonitoringService.EventView> read(int limit) {
-		List<MonitoringService.EventView> found = new ArrayList<>(Math.max(1, limit));
+	/**
+	 * Lê o histórico COMPLETO (todos os dias retidos), do mais novo para o mais antigo, até juntar
+	 * {@code limit} eventos que passem no filtro. É o que permite a paginação: o cursor `before`
+	 * continua de onde a página anterior parou, sem reler só o rabo do arquivo.
+	 *
+	 * @param before  só eventos estritamente mais antigos que este instante (cursor)
+	 * @param stopAt  para a varredura ao cruzar esta data (início da janela pedida)
+	 * @param filter  filtros do painel (nível, tipo, busca, período superior)
+	 */
+	List<MonitoringService.EventView> read(Instant before, Instant stopAt, int limit,
+			Predicate<MonitoringService.EventView> filter) {
+		int teto = Math.max(1, limit);
+		List<MonitoringService.EventView> found = new ArrayList<>(teto);
+		int[] scanned = { 0 };
 		for (Path file : daysNewestFirst()) {
-			readBackward(file, limit, found);
-			if (found.size() >= limit) {
+			boolean keepGoing = readFileBackward(file, line -> {
+				if (++scanned[0] > MAX_SCAN_LINES) {
+					return false;
+				}
+				MonitoringService.EventView event = fromJson(line);
+				if (event == null) {
+					return true;
+				}
+				Instant at = instantOf(event);
+				if (before != null && !at.isBefore(before)) {
+					return true;
+				}
+				if (stopAt != null && at.isBefore(stopAt)) {
+					return false;
+				}
+				if (!filter.test(event)) {
+					return true;
+				}
+				found.add(event);
+				return found.size() < teto;
+			});
+			if (!keepGoing || found.size() >= teto) {
 				break;
 			}
 		}
@@ -132,29 +169,63 @@ class FileEventSink {
 		return files;
 	}
 
-	private void readBackward(Path file, int limit, List<MonitoringService.EventView> found) {
-		List<String> tail = new ArrayList<>();
-		try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-			String line;
-			while ((line = reader.readLine()) != null) {
-				if (line.isBlank()) {
+	/**
+	 * Percorre o arquivo de trás para frente em blocos, sem carregar o dia inteiro na memória.
+	 * O `carry` guarda bytes de uma linha cortada entre blocos (e preserva UTF-8: só decodifica
+	 * linhas inteiras). O consumidor devolve false para encerrar a varredura.
+	 */
+	private boolean readFileBackward(Path file, Predicate<String> lineConsumer) {
+		byte[] buf = new byte[BLOCK];
+		byte[] carry = new byte[0];
+		try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
+			long pos = raf.length();
+			while (pos > 0) {
+				int size = (int) Math.min(buf.length, pos);
+				pos -= size;
+				raf.seek(pos);
+				raf.readFully(buf, 0, size);
+				byte[] combined = new byte[size + carry.length];
+				System.arraycopy(buf, 0, combined, 0, size);
+				System.arraycopy(carry, 0, combined, size, carry.length);
+				int lastNewline = lastNewline(combined, combined.length - 1);
+				if (lastNewline < 0) {
+					carry = combined;
 					continue;
 				}
-				tail.add(line);
-				if (tail.size() > limit * 4) {
-					tail.subList(0, tail.size() - limit * 4).clear();
+				carry = Arrays.copyOfRange(combined, lastNewline + 1, combined.length);
+				int end = lastNewline;
+				while (end >= 0) {
+					int start = lastNewline(combined, end - 1) + 1;
+					String line = new String(combined, start, end - start, StandardCharsets.UTF_8);
+					if (line.endsWith("\r")) {
+						line = line.substring(0, line.length() - 1);
+					}
+					if (!line.isBlank() && !lineConsumer.test(line)) {
+						return false;
+					}
+					end = start - 1;
 				}
 			}
+			if (carry.length > 0) {
+				String line = new String(carry, StandardCharsets.UTF_8).strip();
+				if (!line.isEmpty() && !lineConsumer.test(line)) {
+					return false;
+				}
+			}
+			return true;
 		}
 		catch (IOException ignored) {
-			return;
+			return true;
 		}
-		for (int i = tail.size() - 1; i >= 0 && found.size() < limit; i--) {
-			MonitoringService.EventView event = fromJson(tail.get(i));
-			if (event != null) {
-				found.add(event);
+	}
+
+	private static int lastNewline(byte[] data, int from) {
+		for (int i = Math.min(from, data.length - 1); i >= 0; i--) {
+			if (data[i] == '\n') {
+				return i;
 			}
 		}
+		return -1;
 	}
 
 	private BufferedWriter writerFor(String day) throws IOException {

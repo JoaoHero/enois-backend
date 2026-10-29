@@ -731,6 +731,140 @@ Os 4 últimos são **BLOQUEADOS** por dependência externa (não é código meu)
   foram semeados uma denúncia e uma sanção para as tabelas de moderação terem conteúdo.
   *Fora do escopo (externo):* Turnstile em produção, CORS do bucket S3 e a aprovação do app do
   LinkedIn.
+- **[x] ENTREGUE 2026-10-27 — O painel de contribuintes (aba nova do `/moderador`) levava a
+  página a rolar de lado no celular: um e-mail longo estourava 40px.** A varredura acima mediu
+  as telas do dia; a aba "Contribuintes" do painel de moderadores entrou depois e mostra o
+  contato de quem se candidatou — login do GitHub e e-mail. São texto do usuário e não têm
+  espaço em que quebrar: como item de flex, o `min-width: auto` deles é o **min-content** do
+  próprio e-mail, ou seja, o e-mail inteiro.
+  *Medido (Chrome headless, 390px, DOM real do painel com o CSS compilado da QA):* o link de
+  e-mail ficava com 401px numa tela de 390px — **40px de transbordo**. A 1280px nada estourava.
+  *O conserto:* `min-w-0` + `break-all` nos dois links (o `break-words` sozinho não resolve,
+  porque não muda o cálculo do min-content) e `shrink-0` nos ícones, para o ícone não ser
+  espremido quando o texto quebra em duas linhas. Depois: **0px de transbordo** a 390px, e a
+  1280px continua igual.
+  *Teste:* `src/lib/layout-contato.test.ts` (3) — trava a regra nos dois links e nos ícones;
+  **sem o conserto os 3 falham**. `vitest` da linha `qa` sem regressão (as 10 falhas de arquivo
+  e os 2 testes quebrados são o pacote privado `@rede-enois/design-system`, que não resolve
+  neste host — o CI da PR resolve com o token do registry).
+  Front: PR #338 (branch `fix/contato-transborda-celular`, sobre a `qa`).
+- **[x] ENTREGUE 2026-10-27 — Um login (ou nome) longo sem espaços levava a página a rolar de
+  lado no celular: 34px de transbordo em 9 telas.** O `username` é o slug do nome — troca cada
+  espaço por hífen, mas quem se cadastra com o nome colado ("MariaAparecidaConceicao…") fica
+  com um login sem hífen nenhum, e aí não existe ponto de quebra. Onde o login é mostrado num
+  bloco, a palavra estoura a caixa; onde é item de flex, o `min-width: auto` dele é o
+  min-content do login inteiro e o item não encolhe: o mesmo estouro, com a forma diferente.
+  *Medido (Chrome headless, 390px, DOM real e CSS compilado da QA):* a lista de freelas
+  (`/freelances`) e a fila de notas do moderador estouravam **34px** com um login de 72
+  caracteres sem hífen — e o formulário de cadastro aceita nome de até 80, ou seja, é dado real.
+  A 1280px nada estourava.
+  *O conserto:* `break-words` nos 9 lugares onde o app mostra o login de uma pessoa (freelas,
+  fila de notas, fila de jogos, fila de projetos, triagem de post, perfil profissional, perfil de
+  quem faz jogos, lista de contas suspeitas e o nome do candidato no painel de contribuintes) e
+  `min-w-0` nos dois que são item de flex. Depois: **0px de transbordo** nas duas telas medidas.
+  *Teste:* `src/lib/layout-username.test.ts` (9) — trava a regra em cada uma das 9 telas; **sem
+  o conserto os 9 falham**. `vitest` da linha `qa` sem regressão e `tsc` sem erro novo (472 =
+  472, todos do pacote privado `@rede-enois/design-system`).
+  Front: PR #339 (branch `fix/login-longo-quebra-celular`, sobre a `qa`).
+- **[x] ENTREGUE 2026-10-27 — Título ou descrição do usuário escrita sem espaços estourava a
+  tela em até 586px — e a correção é de raiz, no CSS do app.** O item acima consertou o *login*;
+  o mesmo problema aparece com **qualquer texto** que a pessoa escreva colado: título de jogo,
+  nome de projeto, assunto de ticket, título de PR, descrição. Sem ponto de quebra, a palavra
+  estoura a caixa e a **página inteira passa a rolar de lado no celular**.
+  *Medido (Chrome headless, 390px e 1280px, DOM real e CSS compilado da QA):* a fila de jogos
+  (+440px), a de projetos (+520px a 390px e +6px a 1280px), a de pull requests (+438px), a de
+  contribuições do GitHub (+438px) e a de tickets de suporte (+438px) do painel de moderador.
+  *O conserto:* `overflow-wrap: break-word` nos elementos de texto do `src/styles.css`, na
+  camada `base` — assim as utilities `truncate`, `line-clamp` e `break-all` continuam valendo
+  quando o app quer cortar o texto de propósito. É melhor do que repetir `break-words` em cada
+  componente: o texto do usuário aparece em dezenas de lugares e qualquer um deles pode
+  receber a palavra colada.
+  *Prova de que a regra não mexe no visual:* com **dado curto** (com espaços), a geometria de
+  **nenhum** elemento de texto muda em **44 telas** medidas (as 22 rotas principais a 390px e a
+  1280px) — a regra só age quando a palavra realmente não cabe na linha. Com o dado adversarial
+  (palavra colada), os 6 transbordos vão a **0px**.
+  *Teste:* `src/lib/layout-texto-longo.test.ts` (4) — trava a regra no CSS; **sem o conserto os
+  3 casos de conteúdo falham**. `vitest` da linha `qa` sem regressão e `tsc` sem erro novo
+  (472 = 472, todos do pacote privado `@rede-enois/design-system`).
+  Front: PR #348 (branch `fix/texto-longo-nao-estoura`, sobre a `qa`).
+- **[x] ENTREGUE 2026-10-28 — O dock de mensagens (novo) deixava a mini-janela de conversa
+  FORA da tela, com o botão de fechar inalcançável.** O dock é ancorado à direita e cresce para
+  a **esquerda**: cada mini-janela tem 22rem (352px), o painel tem 20rem (320px), o espaço entre
+  eles é 8px e a margem da direita é 16px. O estado aceita até 4 janelas abertas
+  (`MAX_OPEN_CHATS`), mas a largura da tela quase nunca comporta isso — e a janela mais à
+  esquerda **saía da tela**, levando o botão de fechar junto.
+  *Medido (Chrome headless, DOM real e CSS compilado da QA, medindo a borda esquerda de cada
+  janela):* a 1024px com 2 janelas a primeira começava em **-32px** e com 3 em **-392px**; a
+  1280px com 4 janelas, em **-496px**.
+  *O conserto:* o dock desenha só as janelas que cabem — a largura da janela do navegador é
+  medida em tempo de execução (`useLarguraDaJanela`) e o teto vem de
+  `src/lib/chat-dock/chat-dock-layout.ts` (1024px → 1 janela, 1280 → 2, 1440 → 3, 1920 → 4).
+  As conversas **continuam abertas no estado**: elas não são fechadas, apenas não são
+  desenhadas fora da tela.
+  *Testes:* `src/lib/chat-dock/chat-dock-layout.test.ts` (9) e `chat-dock-window.test.ts` (3) —
+  o segundo **falha 3/3 sem o conserto**; mais `src/stores/chat-dock.store.test.ts` (5) para o
+  caso que a revisão achou (abrir uma conversa que já estava aberta e ficou fora do desenho:
+  agora ela **volta para a frente** ao ser clicada, senão ficaria marcada como aberta sem janela
+  e sem botão de fechar). `vitest` da linha `qa` sem regressão e `tsc` sem erro novo
+  (472 = 472, todos do pacote privado `@rede-enois/design-system`).
+  *Verificado no ar:* com o front #349 mergeado na `qa`, a 1024px com 2 conversas abertas só a
+  que cabe é desenhada (borda esquerda em 328px, dentro da tela — antes era -32px) e a 1280px
+  cabem duas; e clicar numa conversa que ficou fora do desenho a **traz para a frente** (o
+  estado passa a `[conv_1, conv_2]` e a janela dela passa a ser desenhada).
+  Front: PR #349 (branch `fix/dock-chat-nao-sai-da-tela`, sobre a `qa`).
+- **[x] ENTREGUE 2026-10-28 — Ativar o E2E numa conta sem senha trocava a senha ANTES de
+  guardar a chave — e a troca encerra a sessão, então o upload saía com 401.** O banner de
+  ativação da criptografia ponta a ponta (`E2eSetupBanner`, no topo do chat) tem dois caminhos:
+  conta **com** senha (pede a senha e guarda o keypair) e conta **sem** senha, de login social
+  (define a senha e guarda o keypair). No segundo, a ordem estava errada: a senha era trocada
+  primeiro e o keypair subia depois — mas trocar a senha **encerra todas as sessões** da conta
+  (`AuthService.changePassword` → `revokeAllByUser`), inclusive a que está em uso.
+  *Confirmado no log do backend:* `POST /auth/password/change` → 200 e, na sequência,
+  `POST /e2e/keypair` → **401**. O banner caía em "Não foi possível definir a senha" e a pessoa
+  ficava **sem chave E com a senha já trocada** — na volta ao login o banner aparecia de novo e
+  o E2E não podia ser ativado.
+  *O conserto (front #350):* o keypair é gerado, cifrado com a senha nova e guardado **antes**
+  da troca; a sessão local é limpa depois (a troca a encerrou no servidor) e a pessoa entra de
+  novo com a senha nova — o mesmo que acontece em qualquer troca de senha do app. A ordem ficou
+  num módulo próprio (`src/lib/e2e/ativar-e2e.ts`) para poder ser testada.
+  *Testes:* front `src/lib/e2e/ativar-e2e.test.ts` (4 — a ordem `keypair` → `senha` → `limpa`
+  **falha com a ordem antiga**) e back `PasswordChangeEndsSessionTests` (3 — a troca derruba a
+  sessão, o upload falha depois dela, a conta social que cria a primeira senha também perde a
+  sessão).
+  *Entregue:* front #350 e back #287 mergeados na `qa` (a regra do backend — trocar a senha
+  encerra as sessões — é intencional e vale para qualquer troca; o que mudou foi a ordem no
+  front).
+- **[x] ENTREGUE 2026-10-28 — A aba "Plataformas externas" da tela de empresas ficava
+  sempre vazia: o backend produzia a origem da empresa e não a mandava na resposta.** O
+  diretório de empresas junta as vagas internas e as agregadas de plataformas externas, e cada
+  empresa sai com a sua `origem` (`CompanyDirectoryReader.CompanySummary.origem`, com
+  `ORIGEM_ENOIS`/`ORIGEM_EXTERNA` — o próprio comentário do leitor diz que "a aba do front separa
+  Énóis × plataformas externas"). Mas o controller montava o corpo da resposta **sem o campo**:
+  o front filtra a aba externa por `c.origem === "externa"`, e um campo ausente nunca é
+  "externa" — então a aba ficava vazia, sem erro e sem aviso, mesmo com as plataformas no
+  diretório.
+  *O conserto (back #289):* a resposta passa a levar a `origem`.
+  *Teste:* `CompanyDirectoryOriginTests` (2) — a interna vem como "enois" e a externa como
+  "externa"; **sem o conserto os 2 falham**. `mvn -Dtest='*Job*Tests,*Compan*Tests,
+  *ExternalJob*Tests'` → 83/83 verdes.
+  *Verificado no ar:* depois do merge do #289, `GET /jobs/companies` na QA devolve a `origem` em
+  todas as 60 empresas do diretório (GitLab, EverAI, Nebius, Monzo… como "externa"), e a aba
+  "Plataformas externas" da tela passa a ter conteúdo.
+- **[x] ENTREGUE 2026-10-27 — Auditoria de contrato da linha `qa` (front x API): nenhuma
+  divergência.** O que a lista do repo já tinha contado antes foi reconferido no código de
+  hoje: as **427 chamadas do front** (`src/lib/api/**`) contra as **505 rotas** do backend da
+  linha `qa` — todo caminho tem par; os **tipos de campo** dos módulos novos (selos de
+  contribuição, painel de contribuintes, PRs, notas, LinkedIn, perfil do GitHub) batem registro a
+  registro com os `record` do backend; os **33 `href` de notificação** que o backend produz
+  estão todos no allowlist de `src/utils/navigation.ts` (fora dele o clique é mudo); as **18
+  abas** do `/moderador` têm componente e nenhuma é botão morto; e as rotas do router
+  (`src/routes/**`) batem com os links internos.
+  *Também foram medidas as telas novas a 390px e 1280px na QA no ar (Chrome headless): as 32
+  rotas públicas (landing, Apoiar, Selos, perfil, profissional, blogs, grupos, vagas, empresas,
+  serviços, carteira, diretrizes, jogos, marketplace, developers, projetos, etc.) — overflow
+  horizontal 0 em todas. A única com transbordo era a aba "Contribuintes" do painel, corrigida
+  acima (o painel é protegido: a medição usou a API interceptada no Chrome, com o DOM e o CSS
+  reais da QA).
 - **[x] ENTREGUE 2026-10-22 — As abas da caixa de entrada cortavam no celular.** Com a quinta aba
   ("Serviços", que veio do chat de serviço), a faixa de abas da caixa de entrada ficava sem
   respiro a 390px e cortava "Arquivadas" na borda a 360px — cortada sem nenhuma pista de que

@@ -26,6 +26,7 @@ import com.socialcoisa.rede.feed.application.FeedPage;
 import com.socialcoisa.rede.feed.application.GetFeedService;
 import com.socialcoisa.rede.idempotency.application.CommandResponse;
 import com.socialcoisa.rede.idempotency.application.IdempotencyApplicationService;
+import com.socialcoisa.rede.profile.application.NameStyleView;
 import com.socialcoisa.rede.profile.application.port.out.UserProfileRepository;
 import com.socialcoisa.rede.profile.domain.UserProfile;
 import com.socialcoisa.rede.shared.web.CurrentUser;
@@ -255,7 +256,8 @@ class CommunityContractController {
 					p != null ? p.username() : null,
 					p != null ? p.displayWithNickname() : null,
 					p != null ? p.avatar() : null,
-					m.role().name());
+					m.role().name(),
+					NameStyleView.from(p));
 			})
 			.toList();
 		return new PageResponse<>(items, null);
@@ -355,7 +357,8 @@ class CommunityContractController {
 	record TransferOwnershipRequest(String newOwnerId) {
 	}
 
-	record MemberView(String userId, String username, String name, String avatar, String role) {
+	record MemberView(String userId, String username, String name, String avatar, String role,
+			NameStyleView nameStyle) {
 	}
 
 }

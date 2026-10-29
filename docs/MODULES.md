@@ -833,6 +833,7 @@ Implementa: `CreateMediaUploadUseCase`, `GetMediaAssetUseCase`, `RequestMediaDel
 | `getParticipants(String conversationId)` | Lista participantes |
 | `countUnread(String conversationId, String userId)` | Conta mensagens não lidas |
 | `getMessages(String conversationId, Instant cursor, int limit)` | Lista mensagens com cursor |
+| `hideMessages(String conversationId, String userId, List<String> messageIds)` | Valida o lote e oculta mensagens somente para o solicitante |
 | `getLastMessageText(String conversationId)` | Texto da última mensagem |
 | `getLastMessageTime(String conversationId)` | Timestamp da última mensagem |
 | `addReaction(String messageId, String userId, String reactionType)` | Adiciona/toggle reação em mensagem |
@@ -856,11 +857,15 @@ Implementa: `CreateMediaUploadUseCase`, `GetMediaAssetUseCase`, `RequestMediaDel
 | `search(...)` | GET /api/conversations/search |
 | `conversation(...)` | GET /api/conversations/{conversationId} |
 | `messages(...)` | GET /api/conversations/{conversationId}/messages |
+| `hideMessages(...)` | POST /api/conversations/{conversationId}/messages/hide |
 | `send(...)` | POST /api/conversations/{conversationId}/messages |
 | `read(...)` | POST /api/conversations/{conversationId}/read |
 | `create(...)` | POST /api/conversations |
 | `reactToMessage(...)` | POST /api/conversations/{conversationId}/messages/{messageId}/reactions |
 | `listMessageReactions(...)` | GET /api/conversations/{conversationId}/messages/{messageId}/reactions |
+
+A ocultação afeta somente o solicitante e aceita mensagens da conversa informada. Seleções
+inválidas são rejeitadas integralmente. A operação exige autenticação e chave de idempotência.
 
 ---
 
@@ -1014,12 +1019,19 @@ mesmo formato pt-BR do frontend (`50.000 mf` = "50").
 | `POST /carteira/transacoes/{refId}/contestar` | Contestar uma transação (suspeita de golpe) |
 | `GET /carteira/contestacoes` | Minhas contestações |
 | `GET /coin/cotacao` / `POST /coin/cotacao` | Cotação da moeda (leitura pública / atualização) |
+| `GET /admin/carteira/economia` | Métricas do cálculo automático da cotação (uso, emissão, índice e valor sugerido) |
+| `POST /admin/carteira/economia/recalcular` | Roda o cálculo agora e publica se o valor mudou (admin) |
 | `GET /admin/carteira/disputas` | Fila de disputas para a moderação |
 | `POST /admin/carteira/disputas/{id}/deferir` | Disputa verdadeira: reverte a transferência e restringe o golpista |
 | `POST /admin/carteira/disputas/{id}/rejeitar` | Disputa falsa: restringe quem contestou de má-fé |
 | `GET /admin/carteira/usuarios/{username}/extrato` | Extrato completo de um usuário (moderação) |
 
-Arquivos: `CoinController`, `CoinService`, `CoinRateService`, `coin/dispute/CoinDisputeService`.
+Arquivos: `CoinController`, `CoinService`, `CoinRateService`, `CoinEconomyService`,
+`CoinEconomyCalculator`, `coin/dispute/CoinDisputeService`.
+
+A cotação de referência é **recalculada automaticamente pelo uso** da moeda e a **emissão
+automática é convertida** por ela (mesmo valor em reais quando a faísca sobe ou desce). Fórmula,
+parâmetros e salvaguardas em [`COIN_ECONOMY.md`](COIN_ECONOMY.md).
 
 ## 18. Marketplace
 
@@ -1111,8 +1123,11 @@ Temas da galeria (criados pela comunidade, instaláveis com um clique) e cosmét
 |---|---|
 | `GET /temas/galeria` / `.../mine` / `.../{themeId}` | Galeria pública / meus temas / detalhe |
 | `POST /temas/galeria` / `.../install` / `.../hide` / `.../report` | Publicar, instalar, ocultar, denunciar |
-| `GET /cosmetics/catalog` / `.../loja` / `.../mine` | Catálogo, loja, meus itens |
-| `POST /cosmetics/loja/{itemId}/comprar` / `.../equipar` | Comprar / equipar item |
+| `GET /cosmetics/catalog` / `.../mine` | Community cosmetics catalog, my items |
+| `GET /loja` / `/loja/colecoes` | Native shop catalog / seasonal collections and looks |
+| `POST /loja/{itemId}/comprar` / `.../equipar` / `.../desequipar`, `POST /loja/looks/{lookId}/comprar` | Buy, equip, unequip, buy a look |
+| `PUT /me/status` | Profile status bubble |
+| `GET`/`POST /eventos/saci-halloween`, `/eventos/caca-saci` | Free cosmetic events (duel, hunt) |
 | `PUT /cosmetics/profile/name-style` | Estilo do nome no perfil e em todo lugar onde o nome aparece |
 
 ## 25. DailyGames (Jogos diários)
@@ -1165,6 +1180,14 @@ corporativo do usuário (importável do LinkedIn).
 | `GET /microprojetos` / `POST /empresas/{companyId}/microprojetos` | Catálogo / criar microprojeto |
 | `POST /microprojetos/{projectId}/proposals` / `.../complete` / `.../select` | Propostas, concluir, selecionar |
 | `POST /me/business-profile` / `.../import` / `.../activate` | Perfil corporativo, importar, ativar |
+| `POST /me/business-profile/username` | Troca o nametag (o `@` e o fim de `/profissional/{nametag}`) |
+
+O **nametag** do perfil profissional vive em namespace próprio (índice único no banco) e é
+independente do `@` social: a mesma conta pode ser `aminadojava` no social e `melsantos` no
+profissional. É ele que aparece como `@` e no fim da URL pública; trocar muda o endereço (o antigo
+deixa de responder) sem tocar no perfil social. A importação do perfil social aceita
+`name`, `headline`, `bio`, `avatar`, `banner`, `bannerHtml` e `location` — campo a campo, e a
+comparação do nome do campo ignora maiúsculas (`bannerHtml` chega como o cliente escreve).
 
 ## 30. CommunityProjects + Projects (Projetos)
 
@@ -1246,3 +1269,18 @@ exportado é o caminho sancionado. Convites já resolvidos não se repetem em re
 | `POST /me/integrations/linkedin` | Integração com a conta do LinkedIn |
 
 Documentação detalhada do fluxo de import em [`JOB_IMPORT_JOBRADAR.md`](JOB_IMPORT_JOBRADAR.md).
+
+## 37. Emotes (Figurinhas de chat)
+
+Catálogo de figurinhas montado **no backend**, em memória, e atualizado de 3 em 3 horas: coleções
+globais do BTTV e do FFZ, as mais usadas do FFZ (com o recorte animado) e um retrato popular
+embarcado como reserva. O navegador lê uma página por vez e recebe as imagens pelo proxy deste
+backend — era o CDN do FFZ que deixava metade da grade vazia (30% de falha, timeout de 12s).
+
+| Rota | Descrição |
+|---|---|
+| `GET /emotes?page&limit&q&provider` | Página do seletor (40 por padrão, máx. 100) |
+| `GET /emotes/index` | Índice compacto `código → imagem` para o texto |
+| `GET /emotes/image/{provider}/{id}?variant=thumb\|full` | Imagem com cache em memória |
+
+Todas são leitura pública. Documentação detalhada em [`FIGURINHAS.md`](FIGURINHAS.md).

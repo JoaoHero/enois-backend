@@ -24,6 +24,7 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.Predicate;
 
 import com.socialcoisa.rede.shared.web.RequestObservabilityFilter;
 
@@ -54,12 +55,6 @@ public class MonitoringService {
 	private static final int MAX_MESSAGE = 1000;
 	private static final long MINUTE = 60_000L;
 	private static final long SLOW_MS = 2000L;
-	/**
-	 * Quantas linhas do arquivo a busca por período/termo percorre. O painel ao vivo continua lendo
-	 * só o topo; a busca precisa alcançar o incidente que o usuário reportou minutos depois.
-	 */
-	private static final int SEARCH_WINDOW = 20_000;
-
 	private final Clock clock;
 	private final int maxEventsPerMinute;
 	private final ObjectProvider<DataSource> dataSource;
@@ -349,8 +344,9 @@ public class MonitoringService {
 	}
 
 	public List<EventView> events(String level, String type, String q, String from, String to, String before, int limit) {
-		// Lê do arquivo na VPS (sem banco): dias mais novos primeiro, filtrando em memória e
-		// parando quando o limite do painel é atingido.
+		// Lê o arquivo na VPS (sem banco) do mais novo para o mais antigo, com todos os filtros no
+		// próprio percurso: o cursor `before` continua de onde a página anterior parou, inclusive
+		// depois de reiniciar a página. A varredura para quando enche a página ou cruza `from`.
 		String wantLevel = StringUtils.hasText(level) ? level.trim().toUpperCase(Locale.ROOT) : null;
 		String wantType = StringUtils.hasText(type) ? type.trim().toUpperCase(Locale.ROOT) : null;
 		String needle = StringUtils.hasText(q) ? q.trim().toLowerCase(Locale.ROOT) : null;
@@ -358,45 +354,27 @@ public class MonitoringService {
 		Instant toAt = instantOrNull(to);
 		Instant beforeAt = instantOrNull(before);
 		int teto = Math.max(1, Math.min(limit, 200));
-		// A janela recente é barata e serve ao painel ao vivo. Quando a pessoa filtra por período ou
-		// termo, ela está atrás de um incidente que já saiu do topo — aí a varredura vai bem mais
-		// fundo. Sem isso, um 500 de dez minutos atrás respondia "nenhum evento" e a investigação
-		// morria ali (aconteceu em 2026-10-26, com o 500 do /auth/2fa/verify).
-		boolean procurandoIncidente = fromAt != null || toAt != null || beforeAt != null
-			|| (needle != null && !needle.isBlank());
-		int janela = procurandoIncidente ? Math.max(teto * 4, SEARCH_WINDOW) : Math.max(teto * 4, 400);
-		// Lê com folga: o filtro descarta, então busca mais linhas do que o teto final.
-		List<EventView> found = new ArrayList<>(teto);
-		for (EventView event : sink.read(janela)) {
+		Predicate<EventView> filter = event -> {
 			if (wantLevel != null && !wantLevel.equals(event.level())) {
-				continue;
+				return false;
 			}
 			if (wantType != null && !wantType.equals(event.type())) {
-				continue;
+				return false;
 			}
 			if (needle != null && !needle.isBlank()) {
 				String hay = ((event.message() == null ? "" : event.message()) + " "
 					+ (event.path() == null ? "" : event.path())).toLowerCase(Locale.ROOT);
 				if (!hay.contains(needle)) {
-					continue;
+					return false;
 				}
 			}
 			Instant at = FileEventSink.instantOf(event);
 			if (fromAt != null && at.isBefore(fromAt)) {
-				continue;
+				return false;
 			}
-			if (toAt != null && at.isAfter(toAt)) {
-				continue;
-			}
-			if (beforeAt != null && !at.isBefore(beforeAt)) {
-				continue;
-			}
-			found.add(event);
-			if (found.size() >= teto) {
-				break;
-			}
-		}
-		return found;
+			return toAt == null || !at.isAfter(toAt);
+		};
+		return sink.read(beforeAt, fromAt, teto, filter);
 	}
 
 	private static Instant instantOrNull(String value) {

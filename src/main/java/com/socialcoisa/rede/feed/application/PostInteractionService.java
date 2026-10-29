@@ -27,6 +27,7 @@ import com.socialcoisa.rede.feed.domain.PostId;
 import com.socialcoisa.rede.notifications.application.NotificationService;
 import com.socialcoisa.rede.profile.application.ContributorTagView;
 import com.socialcoisa.rede.profile.application.NameStyleView;
+import com.socialcoisa.rede.profile.domain.UserProfile;
 import com.socialcoisa.rede.shared.blocks.BlockedUsersReader;
 import com.socialcoisa.rede.shared.security.BehavioralTimingGuard;
 import com.socialcoisa.rede.shared.security.NewAccountCooldown;
@@ -189,10 +190,13 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 			.filter(id -> !hidden.contains(id))
 			.collect(java.util.stream.Collectors.toSet());
 		Set<String> contributorIds = userSeals.findActiveUserIds(commentAuthorIds);
+		// One query for the page's authors instead of one per comment.
+		var authors = userProfileRepository.findAllByIds(commentAuthorIds).stream()
+			.collect(java.util.stream.Collectors.toMap(UserProfile::id, java.util.function.Function.identity()));
 		var comments = allComments.stream()
 			.filter(c -> !hidden.contains(c.authorId().value()))
 			.map(c -> {
-				var p = userProfileRepository.findById(c.authorId().value()).orElse(null);
+				var p = authors.get(c.authorId().value());
 				return CommentView.from(c,
 					p != null ? p.displayWithNickname() : null,
 					p != null ? p.username() : null,
@@ -283,7 +287,7 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 			}
 			String ref = "reacoes:" + authorId + ":" + received / 10;
 			if (!coins.hasReward(ref)) {
-				coins.reward(authorId, com.socialcoisa.rede.coin.application.CoinService.FAIS(1), ref, "Reações recebidas (" + received + " no total)");
+				coins.reward(authorId, coins.scaledReward(com.socialcoisa.rede.coin.application.CoinService.FAIS(1)), ref, "Reações recebidas (" + received + " no total)");
 			}
 		} catch (RuntimeException ignored) {
 			// a reação já está gravada; a faísca não pode ser motivo de erro para o usuário

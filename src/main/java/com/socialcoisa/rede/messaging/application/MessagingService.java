@@ -352,6 +352,10 @@ public class MessagingService {
 		return repository.countUnread(conversationId, userId);
 	}
 
+	public int countTotalUnread(String userId) {
+		return repository.countTotalUnread(userId);
+	}
+
 	public List<Message> getMessages(String conversationId, String viewerId, java.time.Instant before, int limit) {
 		if (!repository.findConversationById(conversationId).isPresent()) {
 			throw new ApiException(404, "CONVERSATION_NOT_FOUND", "Conversa nao encontrada.");
@@ -361,8 +365,20 @@ public class MessagingService {
 	}
 
 	/** "Apagar para mim" por mensagem: some so para quem apagou. */
-	public int hideMessages(String userId, java.util.List<String> messageIds) {
-		return repository.hideMessages(userId, messageIds, clock.instant());
+	@Transactional
+	public int hideMessages(String conversationId, String userId, java.util.List<String> messageIds) {
+		if (!repository.isParticipant(conversationId, userId)) {
+			throw new ApiException(403, "NOT_PARTICIPANT", "Voce nao participa desta conversa.");
+		}
+		List<String> ids = messageIds == null ? List.of() : messageIds.stream()
+			.filter(id -> id != null && !id.isBlank()).map(String::trim).distinct().toList();
+		if (ids.isEmpty()) {
+			throw new ApiException(400, "EMPTY_MESSAGE_LIST", "Selecione ao menos uma mensagem.");
+		}
+		if (repository.countMessagesInConversation(conversationId, ids) != ids.size()) {
+			throw new ApiException(404, "MESSAGE_NOT_FOUND", "Mensagem nao encontrada nesta conversa.");
+		}
+		return repository.hideMessages(userId, ids, clock.instant());
 	}
 
 	public record LastMessagePreview(String text, boolean e2e, String iv, java.time.Instant time) {

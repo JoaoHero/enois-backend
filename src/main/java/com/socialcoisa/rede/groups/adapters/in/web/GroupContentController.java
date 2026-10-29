@@ -3,6 +3,9 @@ package com.socialcoisa.rede.groups.adapters.in.web;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -128,7 +131,7 @@ class GroupContentController {
 		return idempotency.execute(user.id(), "POST", "/api/groups/{groupId}/posts", idempotencyKey, hash, () -> {
 			GroupPost post = feed.publish(groupId, request.topicId(), user.id().value(), request.content(),
 				request.mediaIds());
-			return new CommandResponse(201, postView(post, null));
+			return new CommandResponse(201, postView(post, null, author(post.authorId())));
 		});
 	}
 
@@ -142,7 +145,10 @@ class GroupContentController {
 		// A reação de quem está lendo vem numa consulta só (sem N+1), como no feed principal.
 		Map<String, ReactionType> mine = feed.myReactions(groupId, user.id().value(),
 			posts.stream().map(GroupPost::id).toList());
-		var items = posts.stream().map(post -> postView(post, mine.get(post.id()))).toList();
+		Map<String, UserProfile> authors = authorsOf(posts.stream().map(GroupPost::authorId).toList());
+		var items = posts.stream()
+			.map(post -> postView(post, mine.get(post.id()), authors.get(post.authorId())))
+			.toList();
 		String nextCursor = posts.size() == limit
 			? cursorCodec.encode(posts.get(posts.size() - 1).createdAt()) : null;
 		return new PageResponse<>(items, nextCursor);
@@ -155,7 +161,8 @@ class GroupContentController {
 		CurrentUser user = currentUserResolver.resolve(token);
 		GroupPost post = feed.pinnedPost(groupId, user.id().value())
 			.orElseThrow(() -> new ApiException(404, "NO_PINNED_POST", "Nao ha publicacao fixada neste grupo."));
-		return postView(post, feed.myReactions(groupId, user.id().value(), List.of(post.id())).get(post.id()));
+		return postView(post, feed.myReactions(groupId, user.id().value(), List.of(post.id())).get(post.id()),
+			author(post.authorId()));
 	}
 
 	@PostMapping("/{groupId}/posts/{postId}/pin")
@@ -167,7 +174,7 @@ class GroupContentController {
 		return idempotency.execute(user.id(), "POST", "/api/groups/{groupId}/posts/{postId}/pin", idempotencyKey, hash,
 			() -> {
 				GroupPost post = feed.pinPost(groupId, postId, user.id().value());
-				return new CommandResponse(200, postView(post, null));
+				return new CommandResponse(200, postView(post, null, author(post.authorId())));
 			});
 	}
 
@@ -194,7 +201,7 @@ class GroupContentController {
 			idempotencyKey, hash, () -> {
 				GroupComment comment = feed.comment(groupId, postId, user.id().value(), request.content(),
 					request.parentCommentId());
-				return new CommandResponse(201, commentView(comment));
+				return new CommandResponse(201, commentView(comment, author(comment.authorId())));
 			});
 	}
 
@@ -203,10 +210,9 @@ class GroupContentController {
 			@PathVariable String groupId, @PathVariable String postId,
 			@RequestParam(defaultValue = "100") int limit) {
 		CurrentUser user = currentUserResolver.resolve(token);
-		var items = feed.listComments(groupId, postId, user.id().value(), limit)
-			.stream()
-			.map(this::commentView)
-			.toList();
+		List<GroupComment> comments = feed.listComments(groupId, postId, user.id().value(), limit);
+		Map<String, UserProfile> authors = authorsOf(comments.stream().map(GroupComment::authorId).toList());
+		var items = comments.stream().map(comment -> commentView(comment, authors.get(comment.authorId()))).toList();
 		return new PageResponse<>(items, null);
 	}
 
@@ -263,8 +269,17 @@ class GroupContentController {
 			});
 	}
 
-	private CommentView commentView(GroupComment comment) {
-		UserProfile author = profiles.findById(comment.authorId()).orElse(null);
+	private UserProfile author(String authorId) {
+		return profiles.findById(authorId).orElse(null);
+	}
+
+	/** One query for the whole list instead of one per row. */
+	private Map<String, UserProfile> authorsOf(List<String> authorIds) {
+		return profiles.findAllByIds(Set.copyOf(authorIds)).stream()
+			.collect(Collectors.toMap(UserProfile::id, Function.identity()));
+	}
+
+	private CommentView commentView(GroupComment comment, UserProfile author) {
 		return new CommentView(comment.id(), comment.postId(), comment.authorId(),
 			author == null ? null : author.displayWithNickname(),
 			author == null ? null : author.username(),
@@ -273,8 +288,7 @@ class GroupContentController {
 			comment.parentId(), comment.content(), comment.createdAt(), author == null ? null : author.avatarFrame(), NameStyleView.from(author));
 	}
 
-	private GroupPostView postView(GroupPost post, ReactionType myReaction) {
-		UserProfile author = profiles.findById(post.authorId()).orElse(null);
+	private GroupPostView postView(GroupPost post, ReactionType myReaction, UserProfile author) {
 		List<String> badges = author == null ? List.of() : author.allBadges();
 		return new GroupPostView(post.id(), post.groupId(), post.topicId(), post.authorId(),
 			author == null ? null : author.displayWithNickname(),

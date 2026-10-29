@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.socialcoisa.rede.coin.application.port.out.CoinLedgerRepository;
 import com.socialcoisa.rede.coin.domain.CoinAccount;
 import com.socialcoisa.rede.coin.domain.CoinEntry;
+import com.socialcoisa.rede.coin.domain.CoinRate;
 import com.socialcoisa.rede.coin.domain.CoinEntryPage;
 import com.socialcoisa.rede.shared.security.ActionThrottle;
 import com.socialcoisa.rede.shared.web.ApiException;
@@ -91,7 +92,8 @@ public class CoinService {
 		this.transfersPerHour = Math.max(this.transfersPerMinute, Math.min(transfersPerHour, 10_000));
 	}
 
-	public record Wallet(long balance, String chave, long escala, long cotacaoBrlCents, List<CoinEntry> entries) {
+	public record Wallet(long balance, String chave, long escala, long cotacaoBrlCents, long cotacaoBrlMicros,
+			List<CoinEntry> entries) {
 	}
 
 	/** Conta da moeda: cria a conta, executa o airdrop do genesis e marca a presença do dia. */
@@ -104,7 +106,7 @@ public class CoinService {
 			.map(e -> e.withMessage(decifrar(e.message())))
 			.toList();
 		return new Wallet(ensureAccount(accountId).balance(), username, SCALE,
-			rateService.currentBrlCents(), extrato);
+			rateService.currentBrlCents(), rateService.currentBrlMicros(), extrato);
 	}
 
 	/**
@@ -120,12 +122,30 @@ public class CoinService {
 			: ledger.recentEntries(accountId, Math.max(1, Math.min(limit, 200))).stream()
 				.map(e -> e.withMessage(decifrar(e.message())))
 				.toList();
-		return new Wallet(balance, username, SCALE, rateService.currentBrlCents(), entries);
+		return new Wallet(balance, username, SCALE, rateService.currentBrlCents(),
+			rateService.currentBrlMicros(), entries);
+	}
+
+	/**
+	 * Converte um valor-base (definido na cotação inicial: 100 faíscas = R$ 1,00) para a cotação
+	 * vigente, preservando o VALOR em reais. Se a faísca subiu, a pessoa recebe menos faíscas pelo
+	 * mesmo valor; se caiu, recebe mais. A emissão automática nunca cresce de forma descontrolada
+	 * (piso de 0,1 centavo por faísca na conversão) e sempre fica ≥ 1 milésimo.
+	 */
+	public long scaledReward(long baseMf) {
+		return scaleReward(baseMf, rateService.currentBrlMicros());
+	}
+
+	static long scaleReward(long baseMf, long brlMicros) {
+		long safe = Math.max(CoinRate.MICROS_PER_CENT / 10, brlMicros);
+		long scaled = (baseMf * CoinRate.INITIAL_BRL_MICROS + safe / 2) / safe;
+		return Math.max(1L, scaled);
 	}
 
 	/**
 	 * Presença diária (plano C2): +5 por dia; a cada 7 dias consecutivos de presença,
 	 * +25 de bônus. Idempotente por conta+dia — abrir a carteira mil vezes não duplica.
+	 * Os valores são convertidos pela cotação vigente (mesmo valor em reais).
 	 */
 	private void ensureDailyPresence(String accountId) {
 		LocalDate today = LocalDate.now(clock);
@@ -143,10 +163,10 @@ public class CoinService {
 			}
 			dias++;
 		}
-		long amount = DAILY_PRESENCE;
+		long amount = scaledReward(DAILY_PRESENCE);
 		String message = "Presença diária";
 		if (dias >= 7) {
-			amount += STREAK_BONUS;
+			amount += scaledReward(STREAK_BONUS);
 			message = "Presença diária (bônus de " + dias + " dias seguidos)";
 		}
 		ensureTreasury();

@@ -115,12 +115,17 @@ public class DailyGameRewardsService {
 		if (coins.hasReward(ref)) {
 			return false;
 		}
-		long amount = prizeFor(rank);
+		long amount = coins.scaledReward(prizeFor(rank));
 		coins.reward(userId, amount, ref, "Jogo diário " + game.label() + " de " + day + " (" + rank + "º lugar)");
 		notifications.create(userId, "JOGO_DIARIO", "", "Faíscas do jogo diário",
 			"Você ficou em " + rank + "º lugar em " + game.label() + " de " + day + " e ganhou "
-				+ (amount / CoinService.SCALE) + " faíscas.",
+				+ formatFaiscas(amount) + " faíscas.",
 			"/carteira", "Ver carteira");
 		return true;
+	}
+
+	/** O prêmio pode vir fracionado (a escala pela cotação); mostra sem casas à toa. */
+	private static String formatFaiscas(long mf) {
+		return java.math.BigDecimal.valueOf(mf, 3).stripTrailingZeros().toPlainString();
 	}
 }

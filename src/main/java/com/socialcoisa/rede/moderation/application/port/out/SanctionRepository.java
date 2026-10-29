@@ -1,5 +1,6 @@
 package com.socialcoisa.rede.moderation.application.port.out;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,6 +14,9 @@ public interface SanctionRepository {
 
 	/** Sancao ativa do usuario (restricao ou ban) — no maximo uma por conta. */
 	Optional<UserSanction> findActiveByUser(String userId);
+
+	/** Active sanctions of these accounts, in one query. */
+	List<UserSanction> findActiveByUsers(Collection<String> userIds);
 
 	List<UserSanction> findByUser(String userId, int limit);
 }

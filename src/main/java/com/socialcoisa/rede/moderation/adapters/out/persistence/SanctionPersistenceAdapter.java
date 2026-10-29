@@ -1,6 +1,7 @@
 package com.socialcoisa.rede.moderation.adapters.out.persistence;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -35,6 +36,16 @@ class SanctionPersistenceAdapter implements SanctionRepository, ExpiredSuspensio
 	public Optional<UserSanction> findActiveByUser(String userId) {
 		return sanctions.findFirstByUserIdAndStatusOrderByCreatedAtDesc(userId, SanctionStatus.ACTIVE)
 			.map(UserSanctionJpaEntity::toDomain);
+	}
+
+	@Override
+	public List<UserSanction> findActiveByUsers(Collection<String> userIds) {
+		if (userIds.isEmpty()) {
+			return List.of();
+		}
+		return sanctions.findByUserIdInAndStatus(userIds, SanctionStatus.ACTIVE).stream()
+			.map(UserSanctionJpaEntity::toDomain)
+			.toList();
 	}
 
 	@Override

@@ -3,6 +3,9 @@ package com.socialcoisa.rede.groups.adapters.in.web;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -140,10 +143,9 @@ class GroupController {
 	PageResponse<MemberView> members(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String groupId) {
 		CurrentUser user = currentUserResolver.resolve(sessionToken);
-		var items = groupService.listMembers(groupId, user.id().value())
-			.stream()
-			.map(this::memberView)
-			.toList();
+		List<GroupMember> members = groupService.listMembers(groupId, user.id().value());
+		Map<String, UserProfile> profiles = profilesOf(members.stream().map(GroupMember::userId).toList());
+		var items = members.stream().map(member -> memberView(member, profiles.get(member.userId()))).toList();
 		return new PageResponse<>(items, null);
 	}
 
@@ -164,10 +166,9 @@ class GroupController {
 	PageResponse<RequestView> requests(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String groupId) {
 		CurrentUser user = currentUserResolver.resolve(sessionToken);
-		var items = groupService.listPendingRequests(groupId, user.id().value())
-			.stream()
-			.map(this::requestView)
-			.toList();
+		List<GroupJoinRequest> requests = groupService.listPendingRequests(groupId, user.id().value());
+		Map<String, UserProfile> profiles = profilesOf(requests.stream().map(GroupJoinRequest::userId).toList());
+		var items = requests.stream().map(request -> requestView(request, profiles.get(request.userId()))).toList();
 		return new PageResponse<>(items, null);
 	}
 
@@ -250,20 +251,27 @@ class GroupController {
 			group.createdAt());
 	}
 
-	private MemberView memberView(GroupMember member) {
-		return userProfileRepository.findById(member.userId())
-			.map(profile -> new MemberView(member.userId(), profile.username(), profile.name(), profile.avatar(),
-				member.role().name(), member.joinedAt(), NameStyleView.from(profile)))
-			.orElseGet(() -> new MemberView(member.userId(), null, null, null, member.role().name(),
-				member.joinedAt(), null));
+	/** One query for the whole list instead of one per row. */
+	private Map<String, UserProfile> profilesOf(List<String> userIds) {
+		return userProfileRepository.findAllByIds(Set.copyOf(userIds)).stream()
+			.collect(Collectors.toMap(UserProfile::id, Function.identity()));
 	}
 
-	private RequestView requestView(GroupJoinRequest request) {
-		return userProfileRepository.findById(request.userId())
-			.map(profile -> new RequestView(request.id(), request.userId(), profile.username(), profile.name(),
-				profile.avatar(), request.message(), request.createdAt(), NameStyleView.from(profile)))
-			.orElseGet(() -> new RequestView(request.id(), request.userId(), null, null, null, request.message(),
-				request.createdAt(), null));
+	private MemberView memberView(GroupMember member, UserProfile profile) {
+		if (profile == null) {
+			return new MemberView(member.userId(), null, null, null, member.role().name(), member.joinedAt(), null);
+		}
+		return new MemberView(member.userId(), profile.username(), profile.name(), profile.avatar(),
+			member.role().name(), member.joinedAt(), NameStyleView.from(profile));
+	}
+
+	private RequestView requestView(GroupJoinRequest request, UserProfile profile) {
+		if (profile == null) {
+			return new RequestView(request.id(), request.userId(), null, null, null, request.message(),
+				request.createdAt(), null);
+		}
+		return new RequestView(request.id(), request.userId(), profile.username(), profile.name(),
+			profile.avatar(), request.message(), request.createdAt(), NameStyleView.from(profile));
 	}
 
 	private CurrentUser resolveSafely(String sessionToken) {

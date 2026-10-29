@@ -48,6 +48,10 @@ interface SpringDataMessageJpaRepository extends JpaRepository<MessageJpaEntity,
 			AND m.createdAt > :lastReadAt""")
 	int countUnreadAfter(@Param("conversationId") String conversationId, @Param("lastReadAt") java.time.Instant lastReadAt);
 
+	@Query("SELECT COUNT(m) FROM MessageJpaEntity m WHERE m.conversationId = :conversationId AND m.id IN :messageIds")
+	long countInConversation(@Param("conversationId") String conversationId,
+			@Param("messageIds") java.util.Collection<String> messageIds);
+
 	int countByConversationId(String conversationId);
 
 	List<MessageJpaEntity> findBySenderId(String senderId);

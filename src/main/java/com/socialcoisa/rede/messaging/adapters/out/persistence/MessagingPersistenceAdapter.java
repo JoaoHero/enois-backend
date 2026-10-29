@@ -136,6 +136,11 @@ class MessagingPersistenceAdapter implements MessagingRepository {
 	}
 
 	@Override
+	public int countTotalUnread(String userId) {
+		return participantRepo.countTotalUnread(userId);
+	}
+
+	@Override
 	public void saveMessage(Message message) {
 		messageRepo.save(MessageJpaEntity.fromDomain(message));
 	}
@@ -163,6 +168,11 @@ class MessagingPersistenceAdapter implements MessagingRepository {
 	public Optional<Message> findLastMessage(String conversationId) {
 		return messageRepo.findTopByConversationIdOrderByCreatedAtDesc(conversationId)
 			.map(MessageJpaEntity::toDomain);
+	}
+
+	@Override
+	public long countMessagesInConversation(String conversationId, java.util.Collection<String> messageIds) {
+		return messageRepo.countInConversation(conversationId, messageIds);
 	}
 
 	@Override

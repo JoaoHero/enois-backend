@@ -53,7 +53,7 @@ public class MicroProjectService {
 			if (coins.rewardCountByPrefix(prefix) >= 3) {
 				return;
 			}
-			coins.reward(professionalId, com.socialcoisa.rede.coin.application.CoinService.FAIS(200), prefix + projectId, "Microprojeto concluído (bônus da plataforma)");
+			coins.reward(professionalId, coins.scaledReward(com.socialcoisa.rede.coin.application.CoinService.FAIS(200)), prefix + projectId, "Microprojeto concluído (bônus da plataforma)");
 		} catch (RuntimeException ignored) {
 			// o aceite já aconteceu; a faísca não pode ser motivo de erro para a empresa
 		}

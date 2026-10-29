@@ -45,6 +45,9 @@ public interface MessagingRepository {
 
 	int countUnread(String conversationId, String userId);
 
+	/** Total de mensagens nao lidas em todas as conversas ativas do usuario. */
+	int countTotalUnread(String userId);
+
 	void saveMessage(Message message);
 
 	List<Message> findMessagesByConversation(String conversationId, String viewerId, java.time.Instant before,
@@ -57,6 +60,8 @@ public interface MessagingRepository {
 
 	/** A mensagem por id (para conferir de qual conversa ela e antes de mexer nela). */
 	Optional<Message> findMessageById(String messageId);
+
+	long countMessagesInConversation(String conversationId, Collection<String> messageIds);
 
 	/** Apaga mensagens SO para quem chama (o outro participante mantem). */
 	int hideMessages(String userId, Collection<String> messageIds, java.time.Instant now);
