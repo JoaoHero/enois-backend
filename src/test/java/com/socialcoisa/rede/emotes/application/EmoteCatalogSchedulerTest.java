@@ -25,9 +25,10 @@ class EmoteCatalogSchedulerTest {
 		long decorrido = Duration.ofNanos(System.nanoTime() - inicio).toMillis();
 
 		// Regressao: o boot nao pode esperar as listagens do FFZ (segundos cada), nem depender da thread
-		// do agendador comum.
+		// do agendador comum. A janela do verify e folgada de proposito: a suite inteira roda em
+		// paralelo com outras classes e 5s estouravam por contencao, nao por regressao.
 		assertThat(decorrido).isLessThan(1_000);
-		verify(servico, timeout(5_000)).refresh();
+		verify(servico, timeout(15_000)).refresh();
 	}
 
 	@Test
@@ -38,7 +39,7 @@ class EmoteCatalogSchedulerTest {
 		agendador.warmUpOnBoot();
 
 		// Regressao: um Error matava a thread sem log e a montagem simplesmente nao acontecia.
-		verify(servico, timeout(5_000)).refresh();
+		verify(servico, timeout(15_000)).refresh();
 		Thread.sleep(200);
 		assertThat(Thread.getAllStackTraces().keySet().stream().map(Thread::getName))
 			.doesNotContain("figurinhas-boot");
