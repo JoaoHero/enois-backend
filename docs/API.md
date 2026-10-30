@@ -11,7 +11,7 @@ Autenticação via header: `Authorization: Bearer <session_token>`
 | POST | `/api/auth/signup` | Cadastro de novo usuário | Não |
 | POST | `/api/auth/login` | Login com email + senha | Não |
 | POST | `/api/auth/logout` | Revogar sessão atual | Sim |
-| GET | `/api/auth/me` | Retorna usuário autenticado | Sim |
+| GET | `/api/auth/me` | Retorna usuário autenticado (inclui `onboardingCompleted`) | Sim |
 | GET | `/api/auth/oauth/{provider}/start` | Iniciar fluxo OAuth | Não |
 | GET | `/api/auth/oauth/{provider}/callback` | Callback OAuth | Não |
 | POST | `/api/auth/oauth/{provider}/token` | Troca de token OAuth | Não |
@@ -115,6 +115,7 @@ Resposta (signup e login):
 |---|---|---|---|
 | POST | `/api/feed/posts` | Publicar post | Sim |
 | GET | `/api/feed` | Feed principal | Sim |
+| POST | `/api/feed/seen` | Avança o marcador "Você está em dia" | Sim |
 | GET | `/api/users/{username}/posts` | Posts do usuário | Sim |
 | DELETE | `/api/feed/posts/{postId}` | Deletar post | Sim |
 | POST | `/api/feed/posts/bulk-delete` | Deletar posts em lote | Sim |
@@ -169,9 +170,33 @@ Resposta:
       "media": [...]
     }
   ],
-  "nextCursor": "base64encodedtimestamp"
+  "nextCursor": "base64encodedtimestamp",
+  "lastSeenAt": "2025-01-01T00:00:00Z"
 }
 ```
+
+`lastSeenAt` (ISO-8601 ou `null`): o marcador "Você está em dia" da pessoa **como estava antes desta
+visita**. Só vem na primeira página (sem `cursor`); páginas com `cursor` mandam `null` e o front guarda o
+valor recebido na primeira. Só vem nas abas em ordem cronológica (`ALL`, `UNSEEN`, filtros por tipo e as
+legadas); `FOR_YOU` (tópicos preferidos primeiro), `TRENDING` (por reações) e `INTERACTED` mandam sempre
+`null`, porque nelas "o primeiro post mais antigo" não marca a fronteira do que é novo. `null` na primeira página significa que a pessoa nunca marcou nada (não
+desenhe o divisor).
+
+Contrato do front: desenhe o divisor "Você está em dia" **antes do primeiro post com `createdAt` menor
+ou igual a `lastSeenAt`**, olhando os posts que a resposta trouxe (quarentena, silenciados e bloqueios já
+foram filtrados no servidor). Se nenhum post da lista carregada for tão antigo, o divisor ainda não aparece
+(ele surge quando a página com posts antigos chegar). Quando a pessoa rolar além do post mais recente,
+chame `POST /api/feed/seen` com o `createdAt` desse post (uma vez por visita basta).
+
+### POST /api/feed/seen
+
+```json
+{ "seenUntil": "2025-01-01T12:00:00Z" }
+```
+
+Responde `204` sem corpo. O marcador só anda para frente (um valor mais antigo que o atual é ignorado) e
+nunca passa do relógio do servidor (valor no futuro vira "agora"). Sem sessão: `401`. Sem `seenUntil`:
+`400 INVALID_SEEN_UNTIL`.
 
 ### POST /api/feed/posts/{postId}/comments
 
@@ -203,6 +228,53 @@ Tipos de reação: `LIKE`, `LOVE`, `CONGRATS`, `INSIGHTFUL`, `CURIOUS`
 
 ---
 
+## Onboarding (primeira entrada)
+
+| Método | Rota | Descrição | Autenticação |
+|---|---|---|---|
+| GET | `/api/me/onboarding/starter-pack?topics=A,B&skills=x,y` | Sugestões para começar | Sim |
+| POST | `/api/me/onboarding/complete` | Aplica as escolhas e conclui | Sim |
+| POST | `/api/me/onboarding/skip` | Conclui sem mudar nada | Sim |
+
+`onboardingCompleted` (boolean) vem em `/auth/me` e nas respostas de login/verificação: `false`
+só para contas criadas depois da V210 que ainda não concluíram nem pularam.
+
+`starter-pack` devolve até 6 comunidades (sem as que a pessoa já participa), até 6 grupos ativos
+de entrada aberta (sem os que já participa) e até 8 pessoas (contas ativas, verificadas e adultas,
+sem conexão, pedido pendente ou bloqueio em qualquer direção, e sem quem a pessoa silenciou; nada é sugerido a quem é menor).
+Primeiro o que casa com os assuntos/habilidades, depois o mais popular, então a lista não fica
+vazia quando ninguém casa. `topics` usa a taxonomia de `/me/preferences` (desconhecido = `400`).
+
+```json
+{
+  "communities": [{ "id": "", "name": "", "description": "", "topic": "PETS", "avatar": null, "memberCount": 12 }],
+  "groups": [{ "id": "", "slug": "", "name": "", "description": "", "topic": "PETS", "avatar": null, "memberCount": 4 }],
+  "people": [{ "id": "", "username": "", "name": "", "headline": null, "avatar": null }]
+}
+```
+
+`complete` recebe (todos opcionais):
+
+```json
+{ "topics": ["PETS"], "skills": ["java"], "communityIds": [], "groupIds": [], "connectUserIds": [] }
+```
+
+Assuntos entram em "quero ver" e habilidades no perfil, somando ao que já existe. Entra nas
+comunidades e nos grupos de entrada aberta pelas mesmas regras da ação manual (grupo com aprovação
+é ignorado, sem pedido) e manda pedido de conexão pela rede. Tetos: 6 comunidades, 6 grupos, 8
+pedidos, 20 habilidades de até 60 caracteres; acima disso `400` (`TOO_MANY_COMMUNITIES`,
+`TOO_MANY_GROUPS`, `TOO_MANY_CONNECTIONS`, `TOO_MANY_SKILLS`, `SKILL_TOO_LONG`) e nada muda. Id
+inválido (inexistente, a própria conta, bloqueio) é pulado. Repetir a chamada não duplica nada. A
+resposta lista o que ficou valendo (já existia ou foi feito agora):
+
+```json
+{ "onboardingCompleted": true, "joinedCommunityIds": [], "joinedGroupIds": [], "requestedUserIds": [] }
+```
+
+`skip` devolve o mesmo formato com as listas vazias.
+
+---
+
 ## Rede / Conexões
 
 | Método | Rota | Descrição | Autenticação |
@@ -217,6 +289,8 @@ Tipos de reação: `LIKE`, `LOVE`, `CONGRATS`, `INSIGHTFUL`, `CURIOUS`
 | GET | `/api/network/connections/{targetUserId}/status` | Status da conexão | Sim |
 
 Status: `PENDING`, `ACCEPTED`, `BLOCKED`, `NONE`
+
+Pedir conexão a uma conta que não existe responde `404 USER_NOT_FOUND`.
 
 ---
 
@@ -300,7 +374,7 @@ figurinha com versão em movimento.
 | POST | `/api/communities` | Criar comunidade | Sim |
 | GET | `/api/communities/{communityId}` | Detalhes da comunidade | Sim |
 | PATCH | `/api/communities/{communityId}` | Atualizar comunidade | Sim |
-| POST | `/api/communities/{communityId}/members` | Entrar na comunidade | Sim |
+| POST | `/api/communities/{communityId}/members` | Entrar na comunidade (`404 COMMUNITY_NOT_FOUND` se não existe) | Sim |
 | DELETE | `/api/communities/{communityId}/members` | Sair da comunidade | Sim |
 | GET | `/api/communities/{communityId}/members` | Listar membros | Sim |
 | GET | `/api/communities/{communityId}/feed` | Feed da comunidade | Sim |
@@ -375,6 +449,24 @@ Nota: Criar vaga requer reputação >= 300.
 | GET | `/api/notifications` | Listar notificações | Sim |
 | POST | `/api/notifications/{notificationId}/read` | Marcar como lida | Sim |
 | POST | `/api/notifications/read-all` | Marcar todas como lidas | Sim |
+| GET | `/api/me/notification-preferences` | Preferências de push e do resumo semanal | Sim |
+| PUT | `/api/me/notification-preferences` | Atualização parcial (campo ausente/nulo mantém o valor) | Sim |
+| GET | `/api/notifications/digest/unsubscribe?token=` | Descadastro do resumo semanal (link do e-mail, HTML) | Não (token) |
+| POST | `/api/notifications/digest/unsubscribe?token=` | Descadastro em um clique (RFC 8058, cliente de e-mail): 200/400 sem corpo | Não (token) |
+| POST | `/api/blogs/descadastrar?token=` | Mesmo descadastro em um clique para a newsletter do blog | Não (token) |
+
+Preferências (GET e resposta do PUT):
+
+```json
+{ "weeklyDigest": true, "pushSocial": true, "pushMessages": true, "pushGroups": true,
+  "pushJobs": true, "pushSystem": true, "updatedAt": "2026-10-30T12:00:00Z" }
+```
+
+`updatedAt` é `null` enquanto a pessoa nunca mudou nada (padrão: tudo ligado). Segurança, moderação e
+sanções sempre viram push. Regras e categorias em [`DIGEST.md`](DIGEST.md).
+
+Mudança de estado da candidatura também gera a notificação `JOB_APPLICATION_STATUS`
+(`href` = `/vagas/{jobId}`), além da mensagem direta e do e-mail.
 
 ---
 
