@@ -515,6 +515,21 @@ encontros não online (`IN_PERSON`, `HYBRID`) daquele lugar, com a cidade compar
 
 ---
 
+## Par de estudo
+
+| Método | Rota | Descrição | Autenticação |
+|---|---|---|---|
+| POST | `/api/study-pairs/requests` | Procurar par para um objetivo (`{goal, topic?}`) | Sim |
+| DELETE | `/api/study-pairs/requests/current` | Cancelar o pedido aberto | Sim |
+| GET | `/api/study-pairs/me` | Pedido aberto, pares ativos e check-ins das últimas 4 semanas | Sim |
+| POST | `/api/study-pairs/{pairId}/checkins` | Check-in da semana (`{note}`, até 500); repetir na semana edita | Sim (membro) |
+| POST | `/api/study-pairs/{pairId}/end` | Encerrar o par | Sim (membro) |
+| GET | `/api/study-pairs/goals/popular` | Objetivos com pedidos abertos (sem dado pessoal) | Sim |
+
+Contrato completo, regras e códigos de erro em [`STUDY_PAIRS.md`](STUDY_PAIRS.md).
+
+---
+
 ## Mensagens
 
 | Método | Rota | Descrição | Autenticação |
