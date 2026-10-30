@@ -1217,6 +1217,7 @@ eventos/logs/erros. Documentação completa em [`MONITORAMENTO.md`](MONITORAMENT
 |---|---|
 | `GET /admin/monitoring/overview` | KPIs, séries por minuto, recursos, eventos recentes |
 | `GET /admin/monitoring/events` | Lista de eventos com filtros (nível, tipo, busca, **intervalo de data/hora**, paginação por cursor) |
+| `GET /admin/monitoring/users` | Contas da comunidade: total, entradas por dia (30 dias), crescimento diário e projeções |
 | `GET /admin/emails` | Log de e-mails enviados |
 
 O painel de log aceita "mostrar mais", cópia individual e cópia completa, e o modo pânico (chave de
