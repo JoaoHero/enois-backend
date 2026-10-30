@@ -51,7 +51,7 @@ public class JobService {
 	private final JobRepository repository;
 	private final ReputationService reputationService;
 	private final com.socialcoisa.rede.profile.application.port.out.UserProfileRepository userProfileRepository;
-	private final com.socialcoisa.rede.corporate.application.port.out.CorporateProfileRepository corporateProfiles;
+	private final com.socialcoisa.rede.corporate.application.CorporateProfileService corporateProfiles;
 	private final com.socialcoisa.rede.profile.application.port.out.ProfileExtensionRepository extensionRepository;
 	private final JobApplicationDelivery delivery;
 	private final JobApplicationStatusNotifier statusNotifier;
@@ -63,7 +63,7 @@ public class JobService {
 
 	public JobService(JobRepository repository, ReputationService reputationService,
 			com.socialcoisa.rede.profile.application.port.out.UserProfileRepository userProfileRepository,
-			com.socialcoisa.rede.corporate.application.port.out.CorporateProfileRepository corporateProfiles,
+			com.socialcoisa.rede.corporate.application.CorporateProfileService corporateProfiles,
 			com.socialcoisa.rede.profile.application.port.out.ProfileExtensionRepository extensionRepository,
 			JobApplicationDelivery delivery, JobApplicationStatusNotifier statusNotifier,
 			JobAbandonPenaltyRepository abandonPenalties,
@@ -242,8 +242,11 @@ public class JobService {
 		if (repository.hasApplied(jobId, userId)) {
 			throw new ApiException(409, "ALREADY_APPLIED", "Voce ja se candidatou a esta vaga.");
 		}
+		// A candidatura e SEMPRE da identidade profissional ativa, resolvida pela sessao aqui no
+		// servidor: sem ela nao ha candidatura (o app oferece criar ou ativar o perfil).
+		var professional = corporateProfiles.requireActive(userId);
 		List<JobApplication.JobApplicationAnswer> normalized = validateAnswers(job, answers);
-		String snapshot = snapshotOf(userId);
+		String snapshot = snapshotOf(userId, professional);
 		JobApplication application = JobApplication.create(null, jobId, userId, trimToNull(message, 2000), snapshot,
 			clock.instant(), normalized);
 		String applicationId = repository.saveApplication(application);
@@ -316,36 +319,24 @@ public class JobService {
 	/**
 	 * Retrato do candidato no momento da inscricao: perfil, tempo de experiencia e credibilidade.
 	 *
-	 * A candidatura usa a IDENTIDADE PROFISSIONAL quando ela existe e esta ativa (nome, headline,
-	 * local, avatar e industria vem do alterego; o resto dos valores da conta — reputacao,
-	 * experiencia, habilidades, curriculo e verificacao — e o mesmo para as duas identidades).
-	 * Sem perfil profissional ativo, o retrato e o social, como sempre foi.
+	 * A apresentacao (nome, @, headline, local, avatar e industria) e a da IDENTIDADE PROFISSIONAL,
+	 * nunca a social: a empresa nao recebe o @ nem a foto do perfil pessoal. O resto sao valores da
+	 * conta, iguais para as duas identidades (reputacao, experiencia, habilidades, curriculo,
+	 * verificacao). O nome social continua: e direito da pessoa, nao dado do perfil social.
 	 */
-	private String snapshotOf(String userId) {
+	private String snapshotOf(String userId, com.socialcoisa.rede.corporate.domain.CorporateProfile professional) {
 		var profile = userProfileRepository.findById(userId).orElse(null);
-		var corporate = corporateProfiles.findByUserId(userId)
-			.filter(com.socialcoisa.rede.corporate.domain.CorporateProfile::active).orElse(null);
-		boolean professional = corporate != null;
 		int reputation = reputationService.reputationOf(userId);
 		int years = yearsOfExperience(userId);
 		Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
-		snapshot.put("identity", professional ? "CORPORATE" : "SOCIAL");
-		snapshot.put("name", professional && StringUtils.hasText(corporate.name()) ? corporate.name()
-			: (profile == null ? "" : profile.name()));
+		snapshot.put("identity", "CORPORATE");
+		snapshot.put("name", professional.name());
 		snapshot.put("socialName", profile == null || profile.socialName() == null ? "" : profile.socialName());
-		snapshot.put("username", profile == null ? "" : profile.username());
-		snapshot.put("headline", professional
-			? (StringUtils.hasText(corporate.headline()) ? corporate.headline() : "")
-			: (profile == null ? "" : StringUtils.hasText(profile.headline()) ? profile.headline() : ""));
-		snapshot.put("location", professional
-			? (StringUtils.hasText(corporate.location()) ? corporate.location()
-				: (profile == null ? "" : profile.location() == null ? "" : profile.location()))
-			: (profile == null ? "" : StringUtils.hasText(profile.location()) ? profile.location() : ""));
-		snapshot.put("avatar", professional
-			? (StringUtils.hasText(corporate.avatar()) ? corporate.avatar()
-				: (profile == null ? "" : profile.avatar() == null ? "" : profile.avatar()))
-			: (profile == null ? "" : StringUtils.hasText(profile.avatar()) ? profile.avatar() : ""));
-		snapshot.put("industry", professional && corporate.industry() != null ? corporate.industry() : "");
+		snapshot.put("username", professional.username());
+		snapshot.put("headline", textOrEmpty(professional.headline()));
+		snapshot.put("location", textOrEmpty(professional.location()));
+		snapshot.put("avatar", textOrEmpty(professional.avatar()));
+		snapshot.put("industry", textOrEmpty(professional.industry()));
 		snapshot.put("skills", profile == null ? List.of() : profile.skills());
 		snapshot.put("experienceYears", years);
 		snapshot.put("experiencesCount", extensionRepository.countExperiencesByUserId(userId));
@@ -361,6 +352,10 @@ public class JobService {
 		catch (Exception exception) {
 			throw new ApiException(500, "SNAPSHOT_FAILURE", "Nao foi possivel montar o seu perfil para o envio.");
 		}
+	}
+
+	private static String textOrEmpty(String value) {
+		return StringUtils.hasText(value) ? value : "";
 	}
 
 	/** Anos de experiencia a partir da primeira experiencia registrada (0 quando nao ha nenhuma). */

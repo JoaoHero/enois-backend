@@ -53,42 +53,60 @@ class JobServiceTests {
 
 	private JobService service;
 
+	/** Perfis profissionais em memoria: a candidatura depende da identidade profissional ATIVA. */
+	private final java.util.Map<String, com.socialcoisa.rede.corporate.domain.CorporateProfile> professionals =
+		new java.util.HashMap<>();
+
+	private final com.socialcoisa.rede.corporate.application.port.out.CorporateProfileRepository corporateProfiles =
+		new com.socialcoisa.rede.corporate.application.port.out.CorporateProfileRepository() {
+			@Override
+			public com.socialcoisa.rede.corporate.domain.CorporateProfile save(
+					com.socialcoisa.rede.corporate.domain.CorporateProfile profile) {
+				professionals.put(profile.userId(), profile);
+				return profile;
+			}
+
+			@Override
+			public java.util.Optional<com.socialcoisa.rede.corporate.domain.CorporateProfile> findByUserId(
+					String userId) {
+				return java.util.Optional.ofNullable(professionals.get(userId));
+			}
+
+			@Override
+			public java.util.Optional<com.socialcoisa.rede.corporate.domain.CorporateProfile> findByUsername(
+					String username) {
+				return professionals.values().stream().filter(p -> p.username().equals(username)).findFirst();
+			}
+
+			@Override
+			public java.util.List<com.socialcoisa.rede.corporate.domain.CorporateProfile> findByUserIds(
+					java.util.Collection<String> userIds) {
+				return userIds.stream().map(professionals::get).filter(java.util.Objects::nonNull).toList();
+			}
+
+			@Override
+			public boolean existsByUsername(String username) {
+				return findByUsername(username).isPresent();
+			}
+		};
+
+	private void givenActiveProfessional(String userId, String username) {
+		var now = java.time.Instant.now();
+		professionals.put(userId, com.socialcoisa.rede.corporate.domain.CorporateProfile
+			.create(userId, username, "Mel Santos", now)
+			.withDetails("Engenheira de dados", null, "https://cdn.example/pro.png", null, null, "Recife", "Tecnologia",
+				null, now)
+			.activate(now));
+	}
+
 	@BeforeEach
 	void setUp() {
 		var noopPublisher = new org.springframework.context.ApplicationEventPublisher() {
 			@Override public void publishEvent(Object event) { }
 		};
 		service = new JobService(repository, reputationService, userProfileRepository,
-			new com.socialcoisa.rede.corporate.application.port.out.CorporateProfileRepository() {
-				@Override
-				public com.socialcoisa.rede.corporate.domain.CorporateProfile save(
-						com.socialcoisa.rede.corporate.domain.CorporateProfile profile) {
-					return profile;
-				}
-
-				@Override
-				public java.util.Optional<com.socialcoisa.rede.corporate.domain.CorporateProfile> findByUserId(
-						String userId) {
-					return java.util.Optional.empty();
-				}
-
-				@Override
-				public java.util.Optional<com.socialcoisa.rede.corporate.domain.CorporateProfile> findByUsername(
-						String username) {
-					return java.util.Optional.empty();
-				}
-
-				@Override
-				public java.util.List<com.socialcoisa.rede.corporate.domain.CorporateProfile> findByUserIds(
-						java.util.Collection<String> userIds) {
-					return java.util.List.of();
-				}
-
-				@Override
-				public boolean existsByUsername(String username) {
-					return false;
-				}
-			},
+			new com.socialcoisa.rede.corporate.application.CorporateProfileService(corporateProfiles,
+				userProfileRepository, Clock.systemUTC()),
 			extensionRepository, delivery,
 			statusNotifier,
 			new com.socialcoisa.rede.jobs.application.port.out.JobAbandonPenaltyRepository() {
@@ -244,6 +262,7 @@ class JobServiceTests {
 
 	@Test
 	void stillAcceptsApplicationWhileTheJobIsOpen() {
+		givenActiveProfessional("user_candidato", "melsantos.pro");
 		Job open = openJob();
 		when(repository.findByIdForUpdate("job_1")).thenReturn(java.util.Optional.of(open));
 		when(repository.hasApplied("job_1", "user_candidato")).thenReturn(false);
@@ -254,6 +273,58 @@ class JobServiceTests {
 
 		assertThat(application.jobId()).isEqualTo("job_1");
 		verify(delivery).deliver(any(), any());
+	}
+
+	@Test
+	void refusesApplicationWithoutAnActiveProfessionalIdentity() {
+		when(repository.findByIdForUpdate("job_1")).thenReturn(java.util.Optional.of(openJob()));
+		when(repository.hasApplied("job_1", "user_candidato")).thenReturn(false);
+
+		assertThatThrownBy(() -> service.apply("job_1", "user_candidato", "oi", List.of()))
+			.isInstanceOf(ApiException.class)
+			.extracting(error -> ((ApiException) error).code())
+			.isEqualTo("NO_ACTIVE_CORPORATE_PROFILE");
+
+		verify(repository, never()).saveApplication(any());
+		verifyNoInteractions(delivery);
+	}
+
+	@Test
+	void refusesApplicationWhileTheProfessionalIdentityIsStillADraft() {
+		professionals.put("user_candidato", com.socialcoisa.rede.corporate.domain.CorporateProfile
+			.create("user_candidato", "melsantos.pro", "Mel Santos", java.time.Instant.now()));
+		when(repository.findByIdForUpdate("job_1")).thenReturn(java.util.Optional.of(openJob()));
+		when(repository.hasApplied("job_1", "user_candidato")).thenReturn(false);
+
+		assertThatThrownBy(() -> service.apply("job_1", "user_candidato", "oi", List.of()))
+			.isInstanceOf(ApiException.class)
+			.extracting(error -> ((ApiException) error).code())
+			.isEqualTo("NO_ACTIVE_CORPORATE_PROFILE");
+	}
+
+	@Test
+	void applicationSnapshotCarriesTheProfessionalIdentityAndNeverTheSocialOne() throws Exception {
+		givenActiveProfessional("user_candidato", "melsantos.pro");
+		var social = org.mockito.Mockito.mock(com.socialcoisa.rede.profile.domain.UserProfile.class);
+		org.mockito.Mockito.lenient().when(social.username()).thenReturn("aminadojava");
+		org.mockito.Mockito.lenient().when(social.name()).thenReturn("Nome Social de Perfil");
+		org.mockito.Mockito.lenient().when(social.avatar()).thenReturn("https://cdn.example/social.png");
+		org.mockito.Mockito.lenient().when(social.skills()).thenReturn(List.of("Java"));
+		when(userProfileRepository.findById("user_candidato")).thenReturn(java.util.Optional.of(social));
+		when(repository.findByIdForUpdate("job_1")).thenReturn(java.util.Optional.of(openJob()));
+		when(repository.hasApplied("job_1", "user_candidato")).thenReturn(false);
+		when(repository.saveApplication(any())).thenReturn("app_1");
+
+		JobApplication application = service.apply("job_1", "user_candidato", "oi", List.of());
+
+		var snapshot = new tools.jackson.databind.ObjectMapper().readTree(application.candidateSnapshot());
+		assertThat(snapshot.path("identity").asText()).isEqualTo("CORPORATE");
+		assertThat(snapshot.path("username").asText()).isEqualTo("melsantos.pro");
+		assertThat(snapshot.path("name").asText()).isEqualTo("Mel Santos");
+		assertThat(snapshot.path("avatar").asText()).isEqualTo("https://cdn.example/pro.png");
+		assertThat(application.candidateSnapshot()).doesNotContain("aminadojava", "social.png");
+		// Valores da conta continuam (sao os mesmos para as duas identidades).
+		assertThat(snapshot.path("skills").get(0).asText()).isEqualTo("Java");
 	}
 
 	// ---------------- Triagem: ciclo de vida da candidatura (Fase 4) ----------------
