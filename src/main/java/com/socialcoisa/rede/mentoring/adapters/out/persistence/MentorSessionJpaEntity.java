@@ -38,6 +38,9 @@ class MentorSessionJpaEntity {
 	@Column(nullable = false)
 	private SessionStatus status;
 
+	@Column(name = "price_sparks")
+	private Long priceSparks;
+
 	@Column(name = "created_at", nullable = false)
 	private Instant createdAt;
 
@@ -52,12 +55,13 @@ class MentorSessionJpaEntity {
 		e.slotId = session.slotId();
 		e.message = session.message();
 		e.status = session.status();
+		e.priceSparks = session.priceSparks();
 		e.createdAt = session.createdAt();
 		return e;
 	}
 
 	MentorSession toDomain() {
-		return MentorSession.restore(id, mentorId, menteeId, slotId, message, status, createdAt);
+		return MentorSession.restore(id, mentorId, menteeId, slotId, message, status, priceSparks, createdAt);
 	}
 
 }

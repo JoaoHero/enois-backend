@@ -59,8 +59,7 @@ class MentoringContractController {
 		Instant before = cursorCodec.decode(cursor).orElse(null);
 		List<Mentor> mentors = mentorService.list(expertise, before, limit);
 		var items = mentors.stream()
-			.map(m -> new MentorView(m.id(), m.userId(), m.expertise(), m.rating(), m.sessionsCount(), m.price(),
-				m.banner(), m.meetingUrl(), mentorService.nextAvailableSlot(m.id())))
+			.map(m -> mentorView(m))
 			.toList();
 		String nextCursor = mentors.size() == limit
 			? cursorCodec.encode(mentors.get(mentors.size() - 1).createdAt()) : null;
@@ -69,9 +68,7 @@ class MentoringContractController {
 
 	@GetMapping("/{mentorId}")
 	MentorView mentor(@PathVariable String mentorId) {
-		Mentor m = mentorService.getById(mentorId);
-		return new MentorView(m.id(), m.userId(), m.expertise(), m.rating(), m.sessionsCount(), m.price(),
-			m.banner(), m.meetingUrl(), mentorService.nextAvailableSlot(m.id()));
+		return mentorView(mentorService.getById(mentorId));
 	}
 
 	@GetMapping("/{mentorId}/slots")
@@ -95,9 +92,8 @@ class MentoringContractController {
 		return idempotency.execute(user.id(), "POST", "/api/mentors", idempotencyKey, hash,
 			() -> {
 				Mentor m = mentorService.create(user.id().value(), request.expertise(), request.price(),
-					request.banner(), request.meetingUrl());
-				return new CommandResponse(201, new MentorView(m.id(), m.userId(), m.expertise(), m.rating(),
-					m.sessionsCount(), m.price(), m.banner(), m.meetingUrl(), mentorService.nextAvailableSlot(m.id())));
+					request.banner(), request.meetingUrl(), request.sparksPrice());
+				return new CommandResponse(201, mentorView(m));
 			});
 	}
 
@@ -110,9 +106,8 @@ class MentoringContractController {
 		return idempotency.execute(user.id(), "PATCH", "/api/mentors/{mentorId}", idempotencyKey, hash,
 			() -> {
 				Mentor m = mentorService.update(mentorId, request.expertise(), request.price(), request.banner(),
-					request.meetingUrl(), user.id().value());
-				return new CommandResponse(200, new MentorView(m.id(), m.userId(), m.expertise(), m.rating(),
-					m.sessionsCount(), m.price(), m.banner(), m.meetingUrl(), mentorService.nextAvailableSlot(m.id())));
+					request.meetingUrl(), request.sparksPrice(), user.id().value());
+				return new CommandResponse(200, mentorView(m));
 			});
 	}
 
@@ -161,7 +156,7 @@ class MentoringContractController {
 	}
 
 	record MentorView(String id, String userId, List<String> expertise, double rating, int sessions, String price,
-			String banner, String meetingUrl, String nextSlot) {
+			String banner, String meetingUrl, Long sparksPrice, String nextSlot) {
 	}
 
 	/** Inscrições recebidas (agenda do mentor): quem marcou, quando e o recado. Só o dono. */
@@ -184,7 +179,8 @@ class MentoringContractController {
 				mentee != null ? mentee.avatar() : null, session.slotId(),
 				slot != null && slot.startsAt() != null ? slot.startsAt().toString() : null,
 				slot != null && slot.endsAt() != null ? slot.endsAt().toString() : null,
-				session.message(), session.status().name(), session.createdAt().toString()));
+				session.message(), session.status().name(), session.priceSparks(),
+				session.createdAt().toString()));
 		}
 		views.sort((first, second) -> {
 			if (first.startsAt() == null && second.startsAt() == null) return 0;
@@ -243,7 +239,8 @@ class MentoringContractController {
 	}
 
 	record MenteeSessionView(String id, String menteeId, String menteeUsername, String menteeName, String menteeAvatar,
-			String slotId, String startsAt, String endsAt, String message, String status, String createdAt) {
+			String slotId, String startsAt, String endsAt, String message, String status, Long priceSparks,
+			String createdAt) {
 	}
 
 	@org.springframework.web.bind.annotation.DeleteMapping("/{mentorId}/slots/{slotId}")
@@ -254,13 +251,96 @@ class MentoringContractController {
 		return ResponseEntity.noContent().build();
 	}
 
+	/** Minhas sessões como mentorado: o que eu agendei, por quanto e em que pé está. */
+	@GetMapping("/sessions/mine")
+	List<MySessionView> mySessions(
+			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
+		List<MentorSession> sessions = mentorService.sessionsByMentee(user.id().value());
+		Map<String, Mentor> mentors = new HashMap<>();
+		for (MentorSession session : sessions) {
+			Mentor mentor = mentorService.mentorOrNull(session.mentorId());
+			if (mentor != null) {
+				mentors.put(session.mentorId(), mentor);
+			}
+		}
+		Map<String, UserProfile> owners = new HashMap<>();
+		profiles.findAllByIds(mentors.values().stream().map(Mentor::userId).distinct().toList())
+			.forEach(profile -> owners.put(profile.id(), profile));
+		Map<String, MentorSlot> slots = new HashMap<>();
+		for (MentorSession session : sessions) {
+			if (session.slotId() == null || slots.containsKey(session.slotId())) {
+				continue;
+			}
+			MentorSlot slot = mentorService.slotOf(session.slotId());
+			if (slot != null) {
+				slots.put(session.slotId(), slot);
+			}
+		}
+		List<MySessionView> views = new ArrayList<>();
+		for (MentorSession session : sessions) {
+			Mentor mentor = mentors.get(session.mentorId());
+			UserProfile owner = mentor == null ? null : owners.get(mentor.userId());
+			MentorSlot slot = session.slotId() == null ? null : slots.get(session.slotId());
+			views.add(new MySessionView(session.id(), session.mentorId(),
+				owner != null ? owner.username() : null, owner != null ? owner.name() : null,
+				owner != null ? owner.avatar() : null,
+				slot != null && slot.startsAt() != null ? slot.startsAt().toString() : null,
+				slot != null && slot.endsAt() != null ? slot.endsAt().toString() : null,
+				session.message(), session.status().name(), session.priceSparks(),
+				mentor == null ? null : mentor.meetingUrl(), session.createdAt().toString()));
+		}
+		return views;
+	}
+
+	/** O mentor confirma a sessão: o valor retido vai para ele, menos a taxa da plataforma. */
+	@PostMapping("/{mentorId}/sessions/{sessionId}/complete")
+	ResponseEntity<String> completeSession(
+			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+			@PathVariable String mentorId, @PathVariable String sessionId) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
+		String hash = idempotency.hash(Map.of("mentorId", mentorId, "sessionId", sessionId));
+		return idempotency.execute(user.id(), "POST", "/api/mentors/{mentorId}/sessions/{sessionId}/complete",
+			idempotencyKey, hash, () -> {
+				mentorService.completeSession(mentorId, sessionId, user.id().value());
+				return new CommandResponse(200, new StatusResponse(sessionId, "COMPLETED"));
+			});
+	}
+
+	/** Cancelamento: o valor retido volta integral para quem pagou. */
+	@PostMapping("/{mentorId}/sessions/{sessionId}/cancel")
+	ResponseEntity<String> cancelSession(
+			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+			@PathVariable String mentorId, @PathVariable String sessionId) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
+		String hash = idempotency.hash(Map.of("mentorId", mentorId, "sessionId", sessionId));
+		return idempotency.execute(user.id(), "POST", "/api/mentors/{mentorId}/sessions/{sessionId}/cancel",
+			idempotencyKey, hash, () -> {
+				mentorService.cancelSession(mentorId, sessionId, user.id().value());
+				return new CommandResponse(200, new StatusResponse(sessionId, "CANCELLED"));
+			});
+	}
+
 	record MentorSlotView(String id, String startsAt, String endsAt, boolean available) {
+	}
+
+	record MySessionView(String id, String mentorId, String mentorUsername, String mentorName, String mentorAvatar,
+			String startsAt, String endsAt, String message, String status, Long priceSparks, String meetingUrl,
+			String createdAt) {
 	}
 
 	record MentorSessionRequest(String slotId, String message) {
 	}
 
-	record CreateMentorRequest(List<String> expertise, String price, String banner, String meetingUrl) {
+	record CreateMentorRequest(List<String> expertise, String price, String banner, String meetingUrl,
+			Long sparksPrice) {
+	}
+
+	private MentorView mentorView(Mentor m) {
+		return new MentorView(m.id(), m.userId(), m.expertise(), m.rating(), m.sessionsCount(), m.price(),
+			m.banner(), m.meetingUrl(), m.sparksPrice(), mentorService.nextAvailableSlot(m.id()));
 	}
 
 	record CreateSlotRequest(Instant startsAt, Instant endsAt) {

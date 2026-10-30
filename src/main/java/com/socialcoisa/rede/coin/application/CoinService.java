@@ -251,6 +251,15 @@ public class CoinService {
 		return UserStreak.fromPresenceDays(accountId, days);
 	}
 
+	/**
+	 * Garante conta e airdrop de quem nunca abriu a carteira: um pagamento (escrow da mentoria,
+	 * por exemplo) não pode falhar só porque a pessoa ainda não passou pela tela da moeda.
+	 */
+	@Transactional
+	public void ensureGenesisFor(String accountId) {
+		ensureGenesis(accountId, accountId);
+	}
+
 	/** Airdrop idempotente: 100 faíscas da tesouraria, uma vez por conta. Sem exceção por username. */
 	private void ensureGenesis(String accountId, String username) {
 		if (ledger.existsByKindAndRefId(com.socialcoisa.rede.coin.domain.CoinEntry.Kind.AIRDROP,
