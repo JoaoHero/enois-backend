@@ -336,6 +336,8 @@ UNIQUE: (requester_user_id, receiver_user_id)
 | created_by | VARCHAR(36) FK → users.id | |
 | created_at | TIMESTAMP | |
 | updated_at | TIMESTAMP | |
+| recurrence | VARCHAR(16) | NONE (padrão), WEEKLY, BIWEEKLY, MONTHLY (V215) |
+| series_id | VARCHAR(255) NULL | Id da primeira ocorrência da série; único com `date` (V215) |
 
 ### `event_attendees`
 
