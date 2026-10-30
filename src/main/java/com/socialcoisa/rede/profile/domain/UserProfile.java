@@ -72,6 +72,8 @@ public class UserProfile {
 	private Instant updatedAt;
 	private Instant termsAcceptedAt;
 	private Instant emailVerifiedAt;
+	/** Fim (concluido ou pulado) do onboarding da primeira entrada; null = ainda nao passou por ele. */
+	private Instant onboardingCompletedAt;
 
 	/** Mostrar a secao de ranking no perfil? Preferencia de quem LE (pedido via suporte, 19/10). */
 	private boolean showRanking = true;
@@ -184,6 +186,21 @@ public class UserProfile {
 
 	public Instant termsAcceptedAt() {
 		return termsAcceptedAt;
+	}
+
+	/** Marca o onboarding como concluido; a primeira marcacao vale (repetir nao muda o instante). */
+	public void completeOnboarding(Instant at) {
+		if (this.onboardingCompletedAt == null) {
+			this.onboardingCompletedAt = at;
+		}
+	}
+
+	public Instant onboardingCompletedAt() {
+		return onboardingCompletedAt;
+	}
+
+	public boolean onboardingCompleted() {
+		return onboardingCompletedAt != null;
 	}
 
 	/** Conta com e-mail confirmado (ou criada por um provedor que ja confirma o e-mail). */

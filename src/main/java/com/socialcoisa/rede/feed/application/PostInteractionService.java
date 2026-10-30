@@ -57,7 +57,6 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 	private final com.socialcoisa.rede.shared.sanctions.SanctionGate sanctionGate;
 	private final com.socialcoisa.rede.shared.risk.RiskEngine riskEngine;
 	private final com.socialcoisa.rede.shared.age.AgeGate agePolicy;
-	private final com.socialcoisa.rede.coin.application.CoinService coins;
 	private final NewAccountCooldown newAccountCooldown;
 	/** Rate limit por usuário e dedup de conteúdo (PR #28). */
 	private final UserRateLimiter userRateLimiter;
@@ -75,7 +74,6 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 			com.socialcoisa.rede.media.application.port.in.ValidateMediaOwnershipUseCase validateMediaOwnership,
 			com.socialcoisa.rede.shared.sanctions.SanctionGate sanctionGate,
 			com.socialcoisa.rede.shared.risk.RiskEngine riskEngine,
-			com.socialcoisa.rede.coin.application.CoinService coins,
 			NewAccountCooldown newAccountCooldown,
 			UserRateLimiter userRateLimiter,
 			ContentDuplicationGuard duplicationGuard,
@@ -95,7 +93,6 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 		this.sanctionGate = sanctionGate;
 		this.riskEngine = riskEngine;
 		this.agePolicy = agePolicy;
-		this.coins = coins;
 		this.newAccountCooldown = newAccountCooldown;
 		this.userRateLimiter = userRateLimiter;
 		this.duplicationGuard = duplicationGuard;
@@ -248,7 +245,6 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 				postRepository.save(post);
 				outboxEventRepository.append("PostReacted", post.id().value(), "{\"postId\":\"" + post.id().value()
 					+ "\",\"authorId\":\"" + command.userId().value() + "\"}");
-				rewardReaction(post.authorId().value(), command.userId().value());
 			}
 			case REMOVED -> {
 				post.removeReaction();
@@ -266,33 +262,6 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 			case REMOVED -> "REACTION_REMOVED";
 		};
 		return new PostActionResult(post.id().value(), status, post.counters());
-	}
-
-	/**
-	 * Recompensa de reações recebidas (plano C2): 1 faísca a cada 10 reações em conteúdo
-	 * do autor (as próprias não contam), teto de 50/dia. Falha aqui NUNCA derruba a
-	 * reação — a moeda é um efeito colateral, não o caminho crítico.
-	 */
-	private void rewardReaction(String authorId, String reactorId) {
-		try {
-			if (authorId.equals(reactorId)) {
-				return;
-			}
-			long received = postInteractionRepository.countReactionsReceived(authorId);
-			if (received <= 0 || received % 10 != 0) {
-				return;
-			}
-			var startOfDay = java.time.LocalDate.now(clock).atStartOfDay().toInstant(java.time.ZoneOffset.UTC);
-			if (postInteractionRepository.countReactionsReceivedSince(authorId, startOfDay) / 10 >= 50) {
-				return; // teto diário
-			}
-			String ref = "reacoes:" + authorId + ":" + received / 10;
-			if (!coins.hasReward(ref)) {
-				coins.reward(authorId, coins.scaledReward(com.socialcoisa.rede.coin.application.CoinService.FAIS(1)), ref, "Reações recebidas (" + received + " no total)");
-			}
-		} catch (RuntimeException ignored) {
-			// a reação já está gravada; a faísca não pode ser motivo de erro para o usuário
-		}
 	}
 
 	@Override

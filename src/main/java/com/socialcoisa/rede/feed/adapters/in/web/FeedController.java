@@ -94,6 +94,7 @@ class FeedController {
 	private final com.socialcoisa.rede.media.application.port.in.ValidateMediaOwnershipUseCase mediaOwnershipValidator;
 	private final HoneypotGuard honeypots;
 	private final com.socialcoisa.rede.feed.application.port.out.OutboxEventRepository outboxEventRepository;
+	private final com.socialcoisa.rede.feed.application.port.out.FeedSeenMarkerRepository feedSeenMarkers;
 
 	FeedController(PublishPostUseCase publishPostUseCase, GetFeedUseCase getFeedUseCase, GetPostUseCase getPostUseCase,
 			GetProfilePostsUseCase getProfilePostsUseCase, DeletePostUseCase deletePostUseCase,
@@ -108,7 +109,8 @@ class FeedController {
 			CursorCodec cursorCodec, BlockedUsersReader blockedUsersReader, Clock clock,
 			com.socialcoisa.rede.media.application.port.in.ValidateMediaOwnershipUseCase mediaOwnershipValidator,
 			HoneypotGuard honeypots,
-			com.socialcoisa.rede.feed.application.port.out.OutboxEventRepository outboxEventRepository) {
+			com.socialcoisa.rede.feed.application.port.out.OutboxEventRepository outboxEventRepository,
+			com.socialcoisa.rede.feed.application.port.out.FeedSeenMarkerRepository feedSeenMarkers) {
 		this.publishPostUseCase = publishPostUseCase;
 		this.getFeedUseCase = getFeedUseCase;
 		this.getPostUseCase = getPostUseCase;
@@ -134,6 +136,7 @@ class FeedController {
 		this.mediaOwnershipValidator = mediaOwnershipValidator;
 		this.honeypots = honeypots;
 		this.outboxEventRepository = outboxEventRepository;
+		this.feedSeenMarkers = feedSeenMarkers;
 	}
 
 	@PostMapping("/feed/posts")
@@ -161,8 +164,12 @@ class FeedController {
 			@RequestParam(required = false) Set<com.socialcoisa.rede.feed.domain.PostType> type,
 			@RequestParam(required = false) Boolean resolved) {
 		CurrentUser user = currentUserResolver.resolve(sessionToken);
-		return getFeedUseCase.getFeed(new GetFeedQuery(user.id(), cursorCodec.decode(cursor), limit, tab,
+		Optional<Instant> before = cursorCodec.decode(cursor);
+		var page = getFeedUseCase.getFeed(new GetFeedQuery(user.id(), before, limit, tab,
 			type == null ? Set.of() : type, resolved));
+		// "Voce esta em dia": only the first page carries the marker (see FeedResponse).
+		boolean withMarker = before.isEmpty() && FeedResponse.carriesMarker(tab);
+		return FeedResponse.of(page, withMarker ? feedSeenMarkers.lastSeenAt(user.id()).orElse(null) : null);
 	}
 
 	/**

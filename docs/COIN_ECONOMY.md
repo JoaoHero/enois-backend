@@ -19,7 +19,7 @@ documento descreve o cálculo automático da **cotação de referência** (BRL) 
    - **Transferências P2P** (`TRANSFER_IN`): o giro entre pessoas.
    - **Retorno ao cofre** (`PURCHASE` + `FEE_IN`): faíscas que voltam para a tesouraria em compras
      da loja e taxas de marketplace.
-   - **Emissão automática** (`REWARD`): presença, sequência, reações, jogos diários, bônus de
+   - **Emissão automática** (`REWARD`): presença, sequência, jogos diários, bônus de
      microprojeto e prêmios.
 2. Compara o giro com a **meta** (`target-turnover`, padrão 5% do estoque em circulação no
    período) e multiplica pela **escassez** do cofre: quanto menos faíscas restam no cofre em
@@ -69,8 +69,11 @@ faíscas = base × 10.000 / cotaçãoAtualEmMicros     (mínimo 1 milésimo, pis
 
 - Faísca subiu → a pessoa recebe **menos faíscas** pelo mesmo valor.
 - Faísca caiu → recebe **mais faíscas** pelo mesmo valor.
-- Escala: presença diária (5), bônus de sequência (25), reação recebida (1), prêmios dos jogos
-  diários (10/5/3/1), bônus de microprojeto (200) e ajuda (20).
+- Escala: presença diária (5), bônus de sequência (25), prêmios dos jogos diários (10/5/3/1),
+  bônus de microprojeto (200) e ajuda (20).
+- Reação recebida não paga mais faísca (#330): pagar por popularidade incentiva caça a curtidas,
+  e a Énóis não é um mercado de atenção. O que se recompensa é ajudar. As entradas antigas
+  (`reacoes:*`) continuam no ledger como histórico.
 
 ### Ajuda: resposta aceita numa dúvida
 
