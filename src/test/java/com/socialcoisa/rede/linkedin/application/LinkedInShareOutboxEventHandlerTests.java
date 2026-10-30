@@ -212,8 +212,13 @@ class LinkedInShareOutboxEventHandlerTests {
 		}
 
 		@Override
-		public List<Post> findActiveByTypes(Set<PostType> types, Instant before, int limit) {
+		public List<Post> findActiveByTypes(Set<PostType> types, Boolean resolved, Instant before, int limit) {
 			return List.of();
+		}
+
+		@Override
+		public void updateAcceptedAnswer(PostId id, String commentId, Instant resolvedAt) {
+			throw new UnsupportedOperationException();
 		}
 	}
 }

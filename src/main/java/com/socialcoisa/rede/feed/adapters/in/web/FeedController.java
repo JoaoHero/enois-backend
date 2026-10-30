@@ -161,11 +161,12 @@ class FeedController {
 	Object feed(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestParam(required = false) String cursor, @RequestParam(defaultValue = "20") int limit,
 			@RequestParam(defaultValue = "FOR_YOU") FeedTab tab,
-			@RequestParam(required = false) Set<com.socialcoisa.rede.feed.domain.PostType> type) {
+			@RequestParam(required = false) Set<com.socialcoisa.rede.feed.domain.PostType> type,
+			@RequestParam(required = false) Boolean resolved) {
 		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		Optional<Instant> before = cursorCodec.decode(cursor);
 		var page = getFeedUseCase.getFeed(new GetFeedQuery(user.id(), before, limit, tab,
-			type == null ? Set.of() : type));
+			type == null ? Set.of() : type, resolved));
 		// "Voce esta em dia": only the first page carries the marker (see FeedResponse).
 		boolean withMarker = before.isEmpty() && FeedResponse.carriesMarker(tab);
 		return FeedResponse.of(page, withMarker ? feedSeenMarkers.lastSeenAt(user.id()).orElse(null) : null);
