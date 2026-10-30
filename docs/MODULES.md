@@ -1261,3 +1261,21 @@ exportado é o caminho sancionado. Convites já resolvidos não se repetem em re
 | `POST /me/integrations/linkedin` | Integração com a conta do LinkedIn |
 
 Documentação detalhada do fluxo de import em [`JOB_IMPORT_JOBRADAR.md`](JOB_IMPORT_JOBRADAR.md).
+
+## 37. StudyPairs (Par de estudo)
+
+Duas pessoas com o mesmo objetivo de estudo e um check-in por semana. O pedido fica aberto até
+aparecer alguém com o mesmo objetivo normalizado (`StudyGoal.key`: minúsculo, sem acento); o mais
+antigo na fila casa primeiro. Só adultos com data de nascimento declarada e e-mail confirmado;
+bloqueio nos dois sentidos impede o par e, depois do par, o encerra em silêncio. Até 2 pares ativos
+e 1 pedido aberto por pessoa. Lembrete semanal (quinta, 18h de Brasília) só para quem ainda não fez
+o check-in da semana.
+
+| Classe | Papel |
+|---|---|
+| `StudyPairService` | Pedido e casamento (reivindicação atômica do pedido da fila), check-in, encerramento, lembrete, objetivos populares |
+| `StudyPairReminderScheduler` | Dispara o lembrete pelo cron `rede.study-pairs.reminder-cron` |
+| `StudyPairPersistenceAdapter` | SQL direto nas tabelas `study_pair_requests`, `study_pairs`, `study_checkins` (V216) |
+| `StudyPairController` | Rotas `/study-pairs/**` |
+
+Detalhes e contrato em [`STUDY_PAIRS.md`](STUDY_PAIRS.md).
