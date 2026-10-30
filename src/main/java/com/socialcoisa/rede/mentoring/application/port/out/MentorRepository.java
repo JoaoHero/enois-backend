@@ -30,6 +30,14 @@ public interface MentorRepository {
 
 	List<MentorSession> findSessionsByMentor(String mentorId);
 
+	/** Sessões que EU marquei como mentorado (agenda de quem contrata). */
+	List<MentorSession> findSessionsByMentee(String menteeId);
+
+	Optional<MentorSession> findSessionById(String sessionId);
+
+	/** Sessões pagas e ainda em aberto — a liberação automática do escrow. */
+	List<MentorSession> findScheduledPaidSessions();
+
 	void delete(String mentorId);
 
 	List<MentorAvailability> findAvailabilitiesByMentor(String mentorId);
