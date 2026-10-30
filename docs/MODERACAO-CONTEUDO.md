@@ -68,6 +68,30 @@ o autor conseguir entender depois por que a publicação ficou fora do ar.
 | Gancho de publicação | Logo depois do commit de um post novo | `ContentAutomationListener` (`AFTER_COMMIT` em `PostPublishedEvent`) |
 | Varredura periódica | A cada 10 minutos, olhando 72h para trás | `ContentAutomationSweepWorker` |
 | Denúncia | Motivo `AI_GENERATED` na triagem de denúncia | `ModerationAiService` (diretriz 8) |
+| Denúncia sexual em post | Denúncia com motivo `SEXUAL_CONTENT` em `POST`, logo depois do commit | `SexualContentReportListener` (`AFTER_COMMIT` em `SexualContentReportEvent`) |
+
+## Denúncia sexual em post: quarentena imediata
+
+Conteúdo sexual é o caso em que **esperar por uma pessoa é o dano**. Por isso ele tem caminho
+próprio, e não a fila comum de denúncias:
+
+1. **Precaução primeiro.** A denúncia sexual em `POST` esconde o post na hora (`QUARANTINED`, não
+   apagamento) e grava o caso como `PENDING` no livro-caixa — antes de qualquer chamada ao modelo.
+   Se o processo morrer no meio, o caso já está com uma pessoa.
+2. **O bot decide em seguida**, olhando o texto **e as imagens** do próprio post. Três saídas:
+   - `PENALIZAR` que passa no gate (`canAutoPenalize`: sem ambiguidade e confiança ≥ 0,7) → o post
+     é **removido de vez** e o caso fecha como `REMOVED`;
+   - `NENHUMA` → o post **volta ao feed** como estava e o caso fecha como `RELEASED`;
+   - qualquer outra coisa — `HUMAN_REVIEW`, JSON inválido, modelo fora do ar, exceção — → o post
+     **continua escondido** e o caso fica `PENDING` na fila humana.
+3. **A conta nunca é punida por este caminho.** Apagar conteúdo e punir conta são decisões
+   separadas; a segunda continua sendo de uma pessoa.
+
+O autor é avisado nas três etapas (em análise, liberado, removido). O caminho é idempotente: um post
+já avaliado não é avaliado de novo. A mídia sexual no **upload** continua sendo tratada por
+`MediaSafetyService`, que é outra barreira e não muda aqui.
+
+Desligar `rede.moderation.sexual.enabled` devolve a denúncia sexual ao fluxo comum (só fila humana).
 
 ## Configuração
 
@@ -78,6 +102,7 @@ o autor conseguir entender depois por que a publicação ficou fora do ar.
 | `rede.moderation.automation.initial-delay-ms` | `MODERATION_AUTOMATION_INITIAL_DELAY_MS` | `90000` |
 | `rede.moderation.automation.sweep-batch` | `MODERATION_AUTOMATION_SWEEP_BATCH` | `20` |
 | `rede.moderation.automation.lookback-hours` | `MODERATION_AUTOMATION_LOOKBACK_HOURS` | `72` |
+| `rede.moderation.sexual.enabled` | `MODERATION_SEXUAL_ENABLED` | `true` |
 
 Sem `MODERATION_LLM_API_KEY` o classificador não responde: o post com marcador fica registrado como
 inconclusivo e **nada** sai do ar — o marcador sozinho nunca esconde publicação.
@@ -101,6 +126,9 @@ moderation/application/ContentAutomationService.java         decide e coloca em 
 moderation/application/ContentAutomationListener.java        gancho de publicação
 moderation/application/ContentAutomationSweepWorker.java     varredura periódica
 moderation/application/ContentQuarantineReviewService.java   fila de revisão (liberar/remover)
+moderation/application/SexualContentReportService.java       denúncia sexual: quarentena + bot decide
+moderation/application/SexualContentReportListener.java      gancho da denúncia sexual (AFTER_COMMIT)
+moderation/application/ModerationService.java                publica o evento no report()/systemReport()
 feed/domain/PostStatus.java                                  status QUARANTINED
 feed/application/DeletePostService.java                      quarantine()/release()
 moderation/adapters/out/persistence/JdbcContentAutomationCheckAdapter.java

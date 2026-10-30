@@ -40,6 +40,7 @@ public class ModerationService {
 	private final NotificationService notifications;
 	private final com.socialcoisa.rede.shared.security.ActionThrottle actionThrottle;
 	private final ModerationLearningService learning;
+	private final org.springframework.context.ApplicationEventPublisher events;
 	private final int reportsPerHour;
 
 	public ModerationService(ReportRepository reportRepository,
@@ -54,6 +55,7 @@ public class ModerationService {
 			NotificationService notifications,
 			com.socialcoisa.rede.shared.security.ActionThrottle actionThrottle,
 			ModerationLearningService learning,
+			org.springframework.context.ApplicationEventPublisher events,
 			@org.springframework.beans.factory.annotation.Value("${rede.moderation.reports-per-hour:10}") int reportsPerHour,
 			Clock clock) {
 		this.reportRepository = reportRepository;
@@ -70,6 +72,7 @@ public class ModerationService {
 		this.notifications = notifications;
 		this.actionThrottle = actionThrottle;
 		this.learning = learning;
+		this.events = events;
 		this.reportsPerHour = reportsPerHour;
 	}
 
@@ -145,7 +148,19 @@ public class ModerationService {
 			description != null ? description : "", Instant.now(clock));
 		Report saved = reportRepository.save(report);
 		notifySupport(saved);
+		publishSexualFlow(saved);
 		return saved;
+	}
+
+	/**
+	 * Denúncia por conteúdo sexual em POST não espera a fila comum: o post sai do ar na hora e o bot
+	 * decide primeiro. Publicado DENTRO da transação e consumido depois do commit — se a denúncia não
+	 * for gravada, nada é escondido.
+	 */
+	private void publishSexualFlow(Report report) {
+		if (report.targetType() == TargetType.POST && report.reason() == ReportReason.SEXUAL_CONTENT) {
+			events.publishEvent(new SexualContentReportEvent(report.targetId(), report.description()));
+		}
 	}
 
 	/** Denuncias do proprio usuario (mais recentes primeiro). Nao expõe dados de terceiros. */
@@ -179,6 +194,7 @@ public class ModerationService {
 			description != null ? description : "", Instant.now(clock));
 		Report saved = reportRepository.save(report);
 		notifySupport(saved);
+		publishSexualFlow(saved);
 		return saved;
 	}
 
