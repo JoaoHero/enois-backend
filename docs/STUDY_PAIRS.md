@@ -31,8 +31,9 @@ sequência, ranking nem métrica pública. O módulo é `studypairs` (migração
 - **Bloqueio depois do par**: encerra o par em silêncio (sem notificação), sem check-in nem lembrete.
 - **Lembrete**: toda quinta às 18h (Brasília), um aviso para cada membro de par ativo que ainda não
   fez o check-in da semana. Cron em `rede.study-pairs.reminder-cron`
-  (`STUDY_PAIRS_REMINDER_CRON`, `-` desliga). Uma rodada por semana numa instância só: com mais de
-  uma réplica seria preciso uma trava por semana.
+  (`STUDY_PAIRS_REMINDER_CRON`, `-` desliga). Idempotente no banco: antes de enviar, cada aviso é
+  reivindicado com uma linha em `study_pair_reminders` (PK `pair_id, user_id, week_key`). Com
+  várias réplicas o cron roda em todas, mas só a inserção que vence envia.
 
 ## Notificações
 
@@ -112,3 +113,4 @@ Até 10 objetivos com pedidos abertos, sem id nem nome de ninguém:
 - `study_pair_requests(id, user_id, goal_key, goal_text, topic, status OPEN|MATCHED|CANCELLED, created_at)`
 - `study_pairs(id, user_a, user_b, goal_key, goal_text, topic, status ACTIVE|ENDED, started_at, ended_at)`
 - `study_checkins(pair_id, user_id, week_key, note, created_at, updated_at)`, PK `(pair_id, user_id, week_key)`
+- `study_pair_reminders(pair_id, user_id, week_key, created_at)`, PK `(pair_id, user_id, week_key)`: um lembrete por semana

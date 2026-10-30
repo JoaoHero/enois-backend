@@ -42,4 +42,7 @@ public interface StudyPairRepository {
 	List<StudyCheckin> findCheckins(String pairId, Collection<String> weekKeys);
 
 	List<PopularGoal> popularOpenGoals(int limit);
+
+	/** Claims this week's reminder for one member; false when another run already claimed it. */
+	boolean claimReminder(String pairId, String userId, String weekKey, Instant at);
 }

@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Weekly check-in reminder, Thursday 18:00 in Brasilia by default ({@code rede.study-pairs.reminder-cron};
- * "-" turns it off).
+ * "-" turns it off). Safe on several replicas: each reminder is claimed in study_pair_reminders.
  */
 @Component
 class StudyPairReminderScheduler {
@@ -20,8 +20,6 @@ class StudyPairReminderScheduler {
 		this.service = service;
 	}
 
-	// ponytail: one run per week on a single instance means one reminder per member; with several
-	// replicas this would need a per-week claim (or ShedLock) to avoid duplicates.
 	@Scheduled(cron = "${rede.study-pairs.reminder-cron:0 0 18 * * THU}", zone = "America/Sao_Paulo")
 	public void remind() {
 		try {

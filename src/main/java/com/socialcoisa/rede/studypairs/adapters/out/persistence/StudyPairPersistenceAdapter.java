@@ -10,6 +10,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -134,6 +135,18 @@ class StudyPairPersistenceAdapter implements StudyPairRepository {
 			(rs, n) -> new PopularGoal(rs.getString("goal_key"), rs.getString("goal_text"), rs.getString("topic"),
 				rs.getInt("open_requests")),
 			limit);
+	}
+
+	@Override
+	public boolean claimReminder(String pairId, String userId, String weekKey, Instant at) {
+		try {
+			jdbc.update("insert into study_pair_reminders (pair_id, user_id, week_key, created_at) values (?, ?, ?, ?)",
+				pairId, userId, weekKey, ts(at));
+			return true;
+		}
+		catch (DuplicateKeyException alreadyClaimed) {
+			return false;
+		}
 	}
 
 	private static StudyPairRequest request(ResultSet rs) throws SQLException {

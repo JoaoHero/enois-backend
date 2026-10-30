@@ -1269,13 +1269,13 @@ aparecer alguém com o mesmo objetivo normalizado (`StudyGoal.key`: minúsculo, 
 antigo na fila casa primeiro. Só adultos com data de nascimento declarada e e-mail confirmado;
 bloqueio nos dois sentidos impede o par e, depois do par, o encerra em silêncio. Até 2 pares ativos
 e 1 pedido aberto por pessoa. Lembrete semanal (quinta, 18h de Brasília) só para quem ainda não fez
-o check-in da semana.
+o check-in da semana, reivindicado em `study_pair_reminders` (seguro com várias réplicas).
 
 | Classe | Papel |
 |---|---|
 | `StudyPairService` | Pedido e casamento (reivindicação atômica do pedido da fila), check-in, encerramento, lembrete, objetivos populares |
 | `StudyPairReminderScheduler` | Dispara o lembrete pelo cron `rede.study-pairs.reminder-cron` |
-| `StudyPairPersistenceAdapter` | SQL direto nas tabelas `study_pair_requests`, `study_pairs`, `study_checkins` (V216) |
+| `StudyPairPersistenceAdapter` | SQL direto nas tabelas `study_pair_requests`, `study_pairs`, `study_checkins`, `study_pair_reminders` (V216) |
 | `StudyPairController` | Rotas `/study-pairs/**` |
 
 Detalhes e contrato em [`STUDY_PAIRS.md`](STUDY_PAIRS.md).

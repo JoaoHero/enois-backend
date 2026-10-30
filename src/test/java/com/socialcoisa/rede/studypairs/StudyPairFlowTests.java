@@ -206,6 +206,8 @@ class StudyPairFlowTests {
 		checkin(a, pairId, "feito").andExpect(status().isOk());
 
 		service.sendWeeklyReminders();
+		// A second run in the same week (another replica, a restart) sends nothing new.
+		service.sendWeeklyReminders();
 
 		assertThat(notifications(a.userId(), StudyPairService.KIND_REMINDER)).isZero();
 		assertThat(notifications(b.userId(), StudyPairService.KIND_REMINDER)).isEqualTo(1);

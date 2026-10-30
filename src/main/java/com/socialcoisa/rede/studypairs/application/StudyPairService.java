@@ -248,8 +248,9 @@ public class StudyPairService {
 	}
 
 	/**
-	 * Weekly nudge: one notification per member of an ACTIVE pair who has not checked in this week.
-	 * Returns how many were sent.
+	 * Weekly nudge: one notification per member of an ACTIVE pair who has not checked in this week,
+	 * at most once per week however many times (or on however many replicas) it runs. Returns how
+	 * many were sent.
 	 */
 	@Transactional
 	public int sendWeeklyReminders() {
@@ -263,7 +264,8 @@ public class StudyPairService {
 				.map(StudyCheckin::userId)
 				.collect(Collectors.toSet());
 			for (String member : List.of(pair.userA(), pair.userB())) {
-				if (done.contains(member)) {
+				// The claim is the idempotency key: every replica runs the cron, only one row wins.
+				if (done.contains(member) || !repository.claimReminder(pair.id(), member, week, clock.instant())) {
 					continue;
 				}
 				notifications.create(member, KIND_REMINDER, "sistema", "Como foi sua semana de estudo?",

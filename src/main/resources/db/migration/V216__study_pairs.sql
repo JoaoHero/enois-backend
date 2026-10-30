@@ -41,3 +41,13 @@ create table if not exists study_checkins (
   updated_at timestamp not null,
   primary key (pair_id, user_id, week_key)
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_uca1400_ai_ci;
+
+-- One weekly reminder per member per pair, claimed by inserting this row before sending: with
+-- several replicas the scheduler fires on each, and only the insert that wins sends.
+create table if not exists study_pair_reminders (
+  pair_id varchar(64) not null,
+  user_id varchar(64) not null,
+  week_key varchar(10) not null,
+  created_at timestamp not null,
+  primary key (pair_id, user_id, week_key)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_uca1400_ai_ci;
