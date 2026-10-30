@@ -847,7 +847,7 @@ A ocorrência nova herda cidade/UF da anterior (o encontro segue no mesmo lugar 
 
 | Função | Descrição |
 |---|---|
-| `create(String userId, String expertise, double price)` | Registra como mentor |
+| `create(String userId, String expertise, double price)` | Registra como mentor (com `meetingUrl` opcional) |
 | `update(String mentorId, String expertise, Double price)` | Atualiza perfil de mentor |
 | `createSlot(String mentorId, Instant startsAt, Instant endsAt)` | Cria horário disponível |
 | `scheduleSession(String mentorId, String menteeId, String slotId, String message)` | Agenda sessão de mentoria |
@@ -860,9 +860,10 @@ A ocorrência nova herda cidade/UF da anterior (o encontro segue no mesmo lugar 
 
 | Classe | Descrição |
 |---|---|
-| `Mentor` | Entidade: user, expertise, rating, sessionsCount, price |
+| `Mentor` | Entidade: user, expertise, rating, sessionsCount, price, meetingUrl (sala externa https opcional) |
 | `MentorSlot` | Entidade: mentor, startsAt, endsAt, available |
 | `MentorSession` | Entidade: mentor, mentee, slot, message, status |
+| `MentorAvailability` | Regra semanal: mentorId, dayOfWeek (1=segunda..7=domingo), timeOfDay ("HH:mm") |
 | `SessionStatus` | Enum: `SCHEDULED`, `COMPLETED`, `CANCELLED` |
 
 ### MentoringContractController
@@ -879,6 +880,9 @@ A ocorrência nova herda cidade/UF da anterior (o encontro segue no mesmo lugar 
 | `delete(...)` | DELETE /api/mentors/{mentorId} |
 | `createSlot(...)` | POST /api/mentors/{mentorId}/slots |
 | `session(...)` | POST /api/mentors/{mentorId}/sessions |
+| `sessions(...)` | GET /api/mentors/{mentorId}/sessions — agenda do mentor (só o dono): quem se inscreveu, horário, mensagem e status |
+| `availability(...)` | GET /api/mentors/{mentorId}/availability — regras semanais do dono (dia 1..7 + horários HH:mm) |
+| `saveAvailability(...)` | PUT /api/mentors/{mentorId}/availability — substitui as regras, gera horários por 28 dias (fuso America/Sao_Paulo, duração 60 min) e retira horários livres que saíram das regras; horário reservado nunca é tocado |
 
 ---
 

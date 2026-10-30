@@ -56,4 +56,8 @@ class MentorSessionJpaEntity {
 		return e;
 	}
 
+	MentorSession toDomain() {
+		return MentorSession.restore(id, mentorId, menteeId, slotId, message, status, createdAt);
+	}
+
 }
