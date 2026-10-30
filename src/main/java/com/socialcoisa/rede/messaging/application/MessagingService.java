@@ -422,7 +422,11 @@ public class MessagingService {
 	@Transactional
 	public boolean addReaction(String messageId, String userId, ReactionType type) {
 		String id = "mreac_" + UUID.randomUUID().toString().replace("-", "");
-		return repository.addMessageReaction(id, messageId, userId, type, clock.instant());
+		boolean added = repository.addMessageReaction(id, messageId, userId, type, clock.instant());
+		if (added) {
+			coins.recordPresence(userId);
+		}
+		return added;
 	}
 
 	public List<MessagingRepository.ReactionSummary> getReactions(String messageId) {

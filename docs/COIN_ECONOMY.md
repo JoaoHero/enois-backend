@@ -80,9 +80,12 @@ não emissão recorrente.
 
 A presença do dia (5 faíscas, escaladas) é paga na **primeira ação real do dia**, não só ao abrir a
 carteira. Contam: publicar um post (direto, no blog ou agendar), comentar, reagir a post ou
-comentário, terminar um jogo diário (vitória, derrota ou fim de partida), enviar mensagem, entrar
-numa comunidade ou grupo (inclusive pedir entrada) e abrir a carteira (`GET /carteira`). A publicação
-automática de um post agendado **não** conta: não é a pessoa presente naquele dia.
+comentário, terminar um jogo diário (vitória, derrota ou fim de partida), enviar mensagem (inclusive
+resposta citando outra), reagir a mensagem, entrar numa comunidade ou grupo (inclusive pedir entrada)
+e abrir a carteira (`GET /carteira`). A publicação automática de um post agendado **não** conta: não
+é a pessoa presente naquele dia. Conteúdo que a moderação automática põe em quarentena **conta**: a
+pessoa agiu, e a quarentena é revisão posterior, não punição; quem tem sanção que bloqueia escrita já
+é barrado antes da ação e por isso não registra presença.
 
 - **Dia em `America/Sao_Paulo`**, pelo `Clock` injetado. Ref idempotente: `presenca:{conta}:{dia}`.
 - **Barato e à prova de falha:** `CoinService.recordPresence(userId)` roda depois do commit da ação,
