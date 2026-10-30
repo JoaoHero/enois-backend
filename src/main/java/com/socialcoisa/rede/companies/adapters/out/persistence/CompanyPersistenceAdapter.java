@@ -38,8 +38,8 @@ class CompanyPersistenceAdapter implements CompanyRepository {
 	}
 
 	@Override
-	public List<Company> findByOwner(String ownerUserId, int limit) {
-		return companies.findByOwnerUserIdOrderByCreatedAtDesc(ownerUserId, PageRequest.of(0, Math.max(1, limit)))
+	public List<Company> findByMember(String userId, int limit) {
+		return companies.findByMember(userId, PageRequest.of(0, Math.max(1, limit)))
 			.stream().map(CompanyJpaEntity::toDomain).toList();
 	}
 

@@ -1,7 +1,10 @@
 package com.socialcoisa.rede.companies.adapters.in.web;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -19,6 +22,8 @@ import com.socialcoisa.rede.companies.domain.CompanyMember;
 import com.socialcoisa.rede.companies.domain.CompanyRole;
 import com.socialcoisa.rede.companies.domain.MicroProject;
 import com.socialcoisa.rede.companies.domain.MicroProjectProposal;
+import com.socialcoisa.rede.profile.application.port.out.UserProfileRepository;
+import com.socialcoisa.rede.profile.domain.UserProfile;
 import com.socialcoisa.rede.shared.web.CurrentUser;
 import com.socialcoisa.rede.shared.web.CurrentUserResolver;
 
@@ -33,9 +38,11 @@ class CompanyController {
 	private final CompanyService companies;
 	private final MicroProjectService microProjects;
 	private final CurrentUserResolver currentUserResolver;
+	private final UserProfileRepository profiles;
 
 	CompanyController(CompanyService companies, MicroProjectService microProjects,
-			CurrentUserResolver currentUserResolver) {
+			CurrentUserResolver currentUserResolver, UserProfileRepository profiles) {
+		this.profiles = profiles;
 		this.companies = companies;
 		this.microProjects = microProjects;
 		this.currentUserResolver = currentUserResolver;
@@ -56,10 +63,19 @@ class CompanyController {
 		Company company = companies.bySlug(slug);
 		CurrentUser viewer = resolveSafely(sessionToken);
 		CompanyRole role = viewer == null ? null : companies.roleOf(company.id(), viewer.id().value());
+		// Where the viewer stands on each project (a sent proposal) and, for the team, how many
+		// proposals each one has. Visitors get neither.
+		Map<String, String> mine = viewer == null ? Map.of()
+			: microProjects.proposalsOf(viewer.id().value()).stream()
+				.collect(Collectors.toMap(MicroProjectProposal::projectId, p -> p.status().name(), (a, b) -> a));
+		List<MicroProjectView> projects = microProjects.byCompany(company.id()).stream()
+			.map(p -> MicroProjectView.from(p, mine.get(p.id()),
+				// ponytail: one count query per project; a page lists at most 50.
+				seesProposals(role) ? microProjects.proposals(p.id(), viewer.id().value()).size() : null))
+			.toList();
 		return new CompanyDetailView(company.id(), company.slug(), company.name(), company.description(),
 			company.sector(), company.size(), company.location(), company.website(), company.logo(), company.cover(),
-			role == null ? null : role.name(),
-			microProjects.byCompany(company.id()).stream().map(MicroProjectView::from).toList());
+			role == null ? null : role.name(), projects);
 	}
 
 	// --- equipe ---
@@ -86,14 +102,16 @@ class CompanyController {
 	@GetMapping("/empresas/mine")
 	List<CompanySummaryView> mine(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
 		CurrentUser user = currentUserResolver.resolve(sessionToken);
-		return companies.ownedBy(user.id().value()).stream().map(CompanySummaryView::from).toList();
+		return companies.memberOf(user.id().value()).stream().map(CompanySummaryView::from).toList();
 	}
 
 	@GetMapping("/empresas/{companyId}/members")
 	List<MemberView> members(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String companyId) {
-		currentUserResolver.resolve(sessionToken);
-		return companies.members(companyId).stream().map(MemberView::from).toList();
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
+		List<CompanyMember> members = companies.members(companyId, user.id().value());
+		Map<String, UserProfile> people = profilesOf(members.stream().map(CompanyMember::userId).toList());
+		return members.stream().map(m -> MemberView.from(m, people.get(m.userId()))).toList();
 	}
 
 	@PostMapping("/empresas/{companyId}/members")
@@ -104,14 +122,15 @@ class CompanyController {
 		companies.requireRole(company, user.id().value(), CompanyRole.ADMIN);
 		CompanyMember member = companies.addMember(companyId, request.userId(),
 			request.role() == null ? CompanyRole.EDITOR : request.role());
-		return MemberView.from(member);
+		return MemberView.from(member, profilesOf(List.of(member.userId())).get(member.userId()));
 	}
 
 	// --- microprojetos ---
 
 	@GetMapping("/microprojetos")
 	List<MicroProjectView> openProjects(@RequestParam(defaultValue = "30") int limit) {
-		return microProjects.openProjects(publicListLimit(limit)).stream().map(MicroProjectView::from).toList();
+		return microProjects.openProjects(publicListLimit(limit)).stream().map(p -> MicroProjectView.from(p, null, null))
+			.toList();
 	}
 
 	/** Teto das listas publicas: sem ele, um `limit` enorme trazia a tabela inteira sem sessao. */
@@ -124,10 +143,13 @@ class CompanyController {
 			@PathVariable String projectId) {
 		CurrentUser viewer = resolveSafely(sessionToken);
 		MicroProject project = microProjects.project(projectId);
-		List<MicroProjectProposal> proposals = viewer == null ? List.of()
-			: microProjects.proposals(projectId, viewer.id().value());
-		return Map.of("project", MicroProjectView.from(project), "proposals",
-			proposals.stream().map(ProposalView::from).toList());
+		// Proposals are for whoever manages the page; anyone else (logged in or not) reads the project alone.
+		boolean team = viewer != null && seesProposals(companies.roleOf(project.companyId(), viewer.id().value()));
+		List<MicroProjectProposal> proposals = team ? microProjects.proposals(projectId, viewer.id().value())
+			: List.of();
+		Map<String, UserProfile> people = profilesOf(proposals.stream().map(MicroProjectProposal::userId).toList());
+		return Map.of("project", MicroProjectView.from(project, null, team ? proposals.size() : null), "proposals",
+			proposals.stream().map(p -> ProposalView.from(p, people.get(p.userId()))).toList());
 	}
 
 	@PostMapping("/empresas/{companyId}/microprojetos")
@@ -161,6 +183,15 @@ class CompanyController {
 		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		MicroProject completed = microProjects.complete(projectId, user.id().value());
 		return Map.of("status", completed.status().name());
+	}
+
+	/** Same bar as the service (EDITOR and up): a recruiter is on the team but does not pick proposals. */
+	private static boolean seesProposals(CompanyRole role) {
+		return role == CompanyRole.OWNER || role == CompanyRole.ADMIN || role == CompanyRole.EDITOR;
+	}
+
+	private Map<String, UserProfile> profilesOf(Collection<String> userIds) {
+		return profiles.findAllByIds(userIds).stream().collect(Collectors.toMap(UserProfile::id, Function.identity()));
 	}
 
 	private CurrentUser resolveSafely(String sessionToken) {
@@ -201,25 +232,38 @@ class CompanyController {
 			String location, String website, String logo, String cover, String myRole, List<MicroProjectView> projects) {
 	}
 
-	record MemberView(String userId, String role, String createdAt) {
-		static MemberView from(CompanyMember m) {
-			return new MemberView(m.userId(), m.role().name(), m.createdAt().toString());
+	/** The person behind a member or a proposal: enough to draw a name, an avatar and a link. */
+	record PersonView(String id, String username, String name, String headline, String avatar) {
+		static PersonView from(UserProfile p) {
+			return p == null ? null : new PersonView(p.id(), p.username(), p.name(), p.headline(), p.avatar());
 		}
 	}
 
+	record MemberView(String userId, String role, String createdAt, PersonView person) {
+		static MemberView from(CompanyMember m, UserProfile profile) {
+			return new MemberView(m.userId(), m.role().name(), m.createdAt().toString(), PersonView.from(profile));
+		}
+	}
+
+	/**
+	 * {@code myProposal}: the viewer's proposal status on this project (null when none);
+	 * {@code proposalCount}: only for the company team.
+	 */
 	record MicroProjectView(String id, String companyId, String title, String problem, String scope,
 			String deliverables, String acceptanceCriteria, String budget, String deadline, String status,
-			String createdAt) {
-		static MicroProjectView from(MicroProject p) {
+			String createdAt, String myProposal, Integer proposalCount) {
+		static MicroProjectView from(MicroProject p, String myProposal, Integer proposalCount) {
 			return new MicroProjectView(p.id(), p.companyId(), p.title(), p.problem(), p.scope(), p.deliverables(),
 				p.acceptanceCriteria(), p.budget(), p.deadline() != null ? p.deadline().toString() : null,
-				p.status().name(), p.createdAt().toString());
+				p.status().name(), p.createdAt().toString(), myProposal, proposalCount);
 		}
 	}
 
-	record ProposalView(String id, String userId, String message, String status, String proposedAt) {
-		static ProposalView from(MicroProjectProposal p) {
-			return new ProposalView(p.id(), p.userId(), p.message(), p.status().name(), p.proposedAt().toString());
+	record ProposalView(String id, String userId, String message, String status, String proposedAt,
+			PersonView person) {
+		static ProposalView from(MicroProjectProposal p, UserProfile profile) {
+			return new ProposalView(p.id(), p.userId(), p.message(), p.status().name(), p.proposedAt().toString(),
+				PersonView.from(profile));
 		}
 	}
 }

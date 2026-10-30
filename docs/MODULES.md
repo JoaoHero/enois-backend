@@ -1293,12 +1293,16 @@ corporativo do usuário (importável do LinkedIn).
 
 | Rota | Descrição |
 |---|---|
-| `GET /empresas` / `GET /empresa/{slug}` / `GET /empresas/mine` | Catálogo (derivado de vagas), página, minhas |
-| `POST /empresas` / `PATCH /empresas/{companyId}` / `.../members` | Criar, editar, membros |
+| `GET /empresas` / `GET /empresa/{slug}` / `GET /empresas/mine` | Páginas criadas, página, as páginas de que a pessoa faz parte (qualquer papel) |
+| `POST /empresas` / `PATCH /empresas/{companyId}` / `.../members` | Criar, editar, membros (a lista da equipe só para quem é da equipe; cada membro vem com `person`) |
 | `GET /microprojetos` / `POST /empresas/{companyId}/microprojetos` | Catálogo / criar microprojeto |
 | `POST /microprojetos/{projectId}/proposals` / `.../complete` / `.../select` | Propostas, concluir, selecionar |
+| `GET /microprojetos/{projectId}` | Projeto; as propostas (com `person`) só para quem gerencia a página (EDITOR ou acima) |
 | `POST /me/business-profile` / `.../import` / `.../activate` | Perfil corporativo, importar, ativar |
 | `POST /me/business-profile/username` | Troca o nametag (o `@` e o fim de `/profissional/{nametag}`) |
+
+Na página (`GET /empresa/{slug}`) cada microprojeto traz `myProposal` (o status da proposta de
+quem vê, ou nulo) e, para quem gerencia a página, `proposalCount`.
 
 O **nametag** do perfil profissional vive em namespace próprio (índice único no banco) e é
 independente do `@` social: a mesma conta pode ser `aminadojava` no social e `melsantos` no

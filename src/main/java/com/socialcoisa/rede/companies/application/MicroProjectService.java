@@ -107,6 +107,12 @@ public class MicroProjectService {
 		return projects.findByCompany(companyId, 50);
 	}
 
+	/** The proposals a person sent, to tell each project card where that person stands. */
+	@Transactional(readOnly = true)
+	public List<MicroProjectProposal> proposalsOf(String userId) {
+		return projects.proposalsOfUser(userId, 200);
+	}
+
 	@Transactional(readOnly = true)
 	public MicroProject project(String projectId) {
 		return projects.findById(projectId)

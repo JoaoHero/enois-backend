@@ -88,8 +88,8 @@ public class CompanyService {
 	}
 
 	@Transactional(readOnly = true)
-	public List<Company> ownedBy(String userId) {
-		return companies.findByOwner(userId, 50);
+	public List<Company> memberOf(String userId) {
+		return companies.findByMember(userId, 50);
 	}
 
 	@Transactional(readOnly = true)
@@ -98,7 +98,9 @@ public class CompanyService {
 	}
 
 	@Transactional(readOnly = true)
-	public List<CompanyMember> members(String companyId) {
+	public List<CompanyMember> members(String companyId, String viewerId) {
+		// The team is internal to the page: only someone in it, in any role, lists it.
+		requireRole(company(companyId), viewerId, CompanyRole.RECRUITER);
 		return companies.membersOf(companyId);
 	}
 

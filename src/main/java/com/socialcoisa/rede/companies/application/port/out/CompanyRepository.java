@@ -14,8 +14,8 @@ public interface CompanyRepository {
 
 	Optional<Company> findBySlug(String slug);
 
-	/** Paginas empresariais de um usuario (as que ele tem papel OWNER; membros veem por CompanyMemberships). */
-	List<Company> findByOwner(String ownerUserId, int limit);
+	/** Pages the user is part of, in any role (the owner is a member too), newest first. */
+	List<Company> findByMember(String userId, int limit);
 
 	boolean existsBySlug(String slug);
 
