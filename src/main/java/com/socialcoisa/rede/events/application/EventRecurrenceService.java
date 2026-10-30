@@ -36,8 +36,6 @@ public class EventRecurrenceService {
 
 	private static final Logger LOG = LoggerFactory.getLogger(EventRecurrenceService.class);
 
-	static final String NOTIFICATION_KIND = "EVENT_NEXT_OCCURRENCE";
-
 	private static final DateTimeFormatter BR_DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
 	private final EventRepository repository;
@@ -168,7 +166,7 @@ public class EventRecurrenceService {
 			if (userId.equals(previous.createdBy())) {
 				continue;
 			}
-			notifications.create(userId, NOTIFICATION_KIND, previous.createdBy(), "Próximo encontro marcado", body,
+			notifications.create(userId, "EVENT_NEXT_OCCURRENCE", previous.createdBy(), "Próximo encontro marcado", body,
 				"/eventos?evento=" + next.id(), "Ver evento");
 		}
 	}

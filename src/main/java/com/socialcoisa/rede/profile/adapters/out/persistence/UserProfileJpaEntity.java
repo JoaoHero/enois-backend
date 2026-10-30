@@ -137,6 +137,9 @@ class UserProfileJpaEntity {
 	@Column(name = "email_verified_at")
 	private Instant emailVerifiedAt;
 
+	@Column(name = "onboarding_completed_at")
+	private Instant onboardingCompletedAt;
+
 	@Column(name = "show_ranking", nullable = false)
 	private boolean showRanking = true;
 
@@ -221,6 +224,7 @@ class UserProfileJpaEntity {
 		entity.updatedAt = profile.updatedAt();
 		entity.termsAcceptedAt = profile.termsAcceptedAt();
 		entity.emailVerifiedAt = profile.emailVerifiedAt();
+		entity.onboardingCompletedAt = profile.onboardingCompletedAt();
 		entity.showRanking = profile.showRanking();
 		entity.totpEnabledAt = profile.totpEnabledAt();
 		entity.emailOtpEnabledAt = profile.emailOtpEnabledAt();
@@ -243,6 +247,7 @@ class UserProfileJpaEntity {
 			createdAt, updatedAt, showRanking);
 		profile.setCounts(profile.connectionsCount(), profile.followersCount(), reputation);
 		profile.acceptTerms(termsAcceptedAt);
+		profile.completeOnboarding(onboardingCompletedAt);
 		if (emailVerifiedAt != null) {
 			profile.markEmailVerified(emailVerifiedAt);
 		}
