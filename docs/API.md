@@ -11,7 +11,7 @@ Autenticação via header: `Authorization: Bearer <session_token>`
 | POST | `/api/auth/signup` | Cadastro de novo usuário | Não |
 | POST | `/api/auth/login` | Login com email + senha | Não |
 | POST | `/api/auth/logout` | Revogar sessão atual | Sim |
-| GET | `/api/auth/me` | Retorna usuário autenticado | Sim |
+| GET | `/api/auth/me` | Retorna usuário autenticado (inclui `onboardingCompleted`) | Sim |
 | GET | `/api/auth/oauth/{provider}/start` | Iniciar fluxo OAuth | Não |
 | GET | `/api/auth/oauth/{provider}/callback` | Callback OAuth | Não |
 | POST | `/api/auth/oauth/{provider}/token` | Troca de token OAuth | Não |
@@ -203,6 +203,53 @@ Tipos de reação: `LIKE`, `LOVE`, `CONGRATS`, `INSIGHTFUL`, `CURIOUS`
 
 ---
 
+## Onboarding (primeira entrada)
+
+| Método | Rota | Descrição | Autenticação |
+|---|---|---|---|
+| GET | `/api/me/onboarding/starter-pack?topics=A,B&skills=x,y` | Sugestões para começar | Sim |
+| POST | `/api/me/onboarding/complete` | Aplica as escolhas e conclui | Sim |
+| POST | `/api/me/onboarding/skip` | Conclui sem mudar nada | Sim |
+
+`onboardingCompleted` (boolean) vem em `/auth/me` e nas respostas de login/verificação: `false`
+só para contas criadas depois da V210 que ainda não concluíram nem pularam.
+
+`starter-pack` devolve até 6 comunidades (sem as que a pessoa já participa), até 6 grupos ativos
+de entrada aberta (sem os que já participa) e até 8 pessoas (contas ativas, verificadas e adultas,
+sem conexão, pedido pendente ou bloqueio em qualquer direção; nada é sugerido a quem é menor).
+Primeiro o que casa com os assuntos/habilidades, depois o mais popular, então a lista não fica
+vazia quando ninguém casa. `topics` usa a taxonomia de `/me/preferences` (desconhecido = `400`).
+
+```json
+{
+  "communities": [{ "id": "", "name": "", "description": "", "topic": "PETS", "avatar": null, "memberCount": 12 }],
+  "groups": [{ "id": "", "slug": "", "name": "", "description": "", "topic": "PETS", "avatar": null, "memberCount": 4 }],
+  "people": [{ "id": "", "username": "", "name": "", "headline": null, "avatar": null }]
+}
+```
+
+`complete` recebe (todos opcionais):
+
+```json
+{ "topics": ["PETS"], "skills": ["java"], "communityIds": [], "groupIds": [], "connectUserIds": [] }
+```
+
+Assuntos entram em "quero ver" e habilidades no perfil, somando ao que já existe. Entra nas
+comunidades e nos grupos de entrada aberta pelas mesmas regras da ação manual (grupo com aprovação
+é ignorado, sem pedido) e manda pedido de conexão pela rede. Tetos: 6 comunidades, 6 grupos, 8
+pedidos, 20 habilidades de até 60 caracteres; acima disso `400` (`TOO_MANY_COMMUNITIES`,
+`TOO_MANY_GROUPS`, `TOO_MANY_CONNECTIONS`, `TOO_MANY_SKILLS`, `SKILL_TOO_LONG`) e nada muda. Id
+inválido (inexistente, a própria conta, bloqueio) é pulado. Repetir a chamada não duplica nada. A
+resposta lista o que ficou valendo (já existia ou foi feito agora):
+
+```json
+{ "onboardingCompleted": true, "joinedCommunityIds": [], "joinedGroupIds": [], "requestedUserIds": [] }
+```
+
+`skip` devolve o mesmo formato com as listas vazias.
+
+---
+
 ## Rede / Conexões
 
 | Método | Rota | Descrição | Autenticação |
@@ -217,6 +264,8 @@ Tipos de reação: `LIKE`, `LOVE`, `CONGRATS`, `INSIGHTFUL`, `CURIOUS`
 | GET | `/api/network/connections/{targetUserId}/status` | Status da conexão | Sim |
 
 Status: `PENDING`, `ACCEPTED`, `BLOCKED`, `NONE`
+
+Pedir conexão a uma conta que não existe responde `404 USER_NOT_FOUND`.
 
 ---
 
@@ -261,7 +310,7 @@ Resposta:
 | POST | `/api/communities` | Criar comunidade | Sim |
 | GET | `/api/communities/{communityId}` | Detalhes da comunidade | Sim |
 | PATCH | `/api/communities/{communityId}` | Atualizar comunidade | Sim |
-| POST | `/api/communities/{communityId}/members` | Entrar na comunidade | Sim |
+| POST | `/api/communities/{communityId}/members` | Entrar na comunidade (`404 COMMUNITY_NOT_FOUND` se não existe) | Sim |
 | DELETE | `/api/communities/{communityId}/members` | Sair da comunidade | Sim |
 | GET | `/api/communities/{communityId}/members` | Listar membros | Sim |
 | GET | `/api/communities/{communityId}/feed` | Feed da comunidade | Sim |

@@ -1261,3 +1261,24 @@ exportado é o caminho sancionado. Convites já resolvidos não se repetem em re
 | `POST /me/integrations/linkedin` | Integração com a conta do LinkedIn |
 
 Documentação detalhada do fluxo de import em [`JOB_IMPORT_JOBRADAR.md`](JOB_IMPORT_JOBRADAR.md).
+
+## 37. Onboarding (primeira entrada)
+
+Conta nova sai da confirmação de e-mail para um feed vazio; o onboarding sugere por onde começar
+(comunidades, grupos abertos e pessoas) e aplica o que a pessoa escolheu. `users.onboarding_completed_at`
+(V210) marca o fim, concluído ou pulado; contas que já existiam na V210 foram marcadas como
+concluídas. O estado sai em `onboardingCompleted` de `/auth/me`.
+
+O ranking do pacote fica no SQL (`JdbcStarterPackAdapter`): o que casa primeiro, o popular depois.
+As escritas passam pelos serviços da ação manual (`CommunityService.join`, `GroupService.join` só
+para grupo `OPEN`, `NetworkService.requestConnection`), com tetos baixos para ser escolha de pessoa,
+não automação. `complete` não é uma transação única: cada entrada confirma sozinha e a repetição
+pula o que já existe.
+
+| Rota | Descrição |
+|---|---|
+| `GET /me/onboarding/starter-pack` | Sugestões (até 6 comunidades, 6 grupos, 8 pessoas) |
+| `POST /me/onboarding/complete` | Aplica as escolhas e marca como concluído |
+| `POST /me/onboarding/skip` | Marca como concluído sem mudanças |
+
+Arquivos: `OnboardingController`, `OnboardingService`, `StarterPackReader`, `JdbcStarterPackAdapter`.
