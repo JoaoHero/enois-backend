@@ -46,6 +46,13 @@ class NotificationCategoryTests {
 						variableKindSites.add(file.getFileName() + ":" + argument);
 					}
 				}
+				if (file.getFileName().toString().equals("MessagingService.java")) {
+					// Message notifications pick NEW_MESSAGE or NEW_WORK_MESSAGE by conversation context.
+					Matcher literal = Pattern.compile("\"(NEW_(?:WORK_)?MESSAGE)\"").matcher(source);
+					while (literal.find()) {
+						kinds.add(literal.group(1));
+					}
+				}
 				if (file.getFileName().toString().equals("GroupNotifier.java")) {
 					// The group notifier passes the kind through a variable: its literals are the kinds.
 					Matcher literal = Pattern.compile("\"(GROUP_[A-Z_]+)\"").matcher(source);
@@ -56,11 +63,11 @@ class NotificationCategoryTests {
 			}
 		}
 
-		assertThat(kinds).contains("SEGURANCA", "NEW_MESSAGE", "JOB_APPLICATION_STATUS", "GROUP_JOIN_REQUEST");
+		assertThat(kinds).contains("SEGURANCA", "NEW_MESSAGE", "NEW_WORK_MESSAGE", "JOB_APPLICATION_STATUS", "GROUP_JOIN_REQUEST");
 		assertThat(kinds).allSatisfy(kind -> assertThat(NotificationCategory.isMapped(kind))
 			.as("kind %s needs a push category in NotificationCategory", kind).isTrue());
 		// A new call site with a computed kind must be read here too, or it escapes this check.
-		assertThat(variableKindSites).containsOnly("GroupNotifier.java:kind");
+		assertThat(variableKindSites).containsOnly("GroupNotifier.java:kind", "MessagingService.java:messageNotificationKind(conversation)");
 	}
 
 	@Test

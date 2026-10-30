@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.socialcoisa.rede.feed.domain.ReactionType;
 import com.socialcoisa.rede.messaging.application.port.out.MessagingRepository;
 import com.socialcoisa.rede.messaging.domain.Conversation;
+import com.socialcoisa.rede.messaging.domain.ConversationContext;
 import com.socialcoisa.rede.messaging.domain.ConversationParticipant;
 import com.socialcoisa.rede.messaging.domain.Message;
 import com.socialcoisa.rede.notifications.application.NotificationService;
@@ -97,6 +98,14 @@ public class MessagingService {
 				throw minorDmRestricted();
 			}
 		}
+		// A DM 1:1 is one thread per pair: opening it again from the inbox search returns the same
+		// conversation instead of a duplicate (the /direct endpoint already worked this way).
+		if ("DIRECT".equals(normalizedKind) && others.size() == 1) {
+			var existing = repository.findPairByKind(createdBy, others.get(0), "DIRECT");
+			if (existing.isPresent()) {
+				return existing.get();
+			}
+		}
 		String id = "conversation_" + UUID.randomUUID().toString().replace("-", "");
 		Conversation conversation = Conversation.create(id, normalizedKind, title, createdBy, clock.instant());
 		repository.saveConversation(conversation);
@@ -106,30 +115,20 @@ public class MessagingService {
 		return conversation;
 	}
 
-	/**
-	 * Conversa direta entre dois usuarios: devolve a existente ou cria (com os dois como
-	 * participantes). Usada, por exemplo, para entregar uma candidatura na DM de quem publicou.
-	 */
+	/** DM social entre dois usuarios: devolve a existente ou cria (com os dois como participantes). */
 	@Transactional
 	public String directConversationBetween(String userA, String userB) {
 		return directConversationBetween(userA, userB, "DIRECT");
 	}
 
 	/**
-	 * Conversa direta marcada com a origem. A candidatura de vaga usa kind = "JOB" para o inbox
-	 * poder separar as conversas de vaga das conversas com pessoas.
+	 * Conversa 1:1 de um KIND (origem) entre duas pessoas: devolve a existente daquele kind ou cria.
+	 * Cada kind e uma conversa propria: a candidatura (JOB) nunca cai na DM social (DIRECT) — e o
+	 * que separa a caixa profissional da social sem duplicar a mesma conversa.
 	 */
 	@Transactional
 	public String directConversationBetween(String userA, String userB, String kind) {
-		var existing = repository.findDirectBetween(userA, userB);
-		if (existing.isPresent()) {
-			return existing.get().id();
-		}
-		String id = "conversation_" + java.util.UUID.randomUUID().toString().replace("-", "");
-		repository.saveConversation(Conversation.create(id, kind, null, userA, clock.instant()));
-		repository.saveParticipant(ConversationParticipant.create(id, userA, clock.instant()));
-		repository.saveParticipant(ConversationParticipant.create(id, userB, clock.instant()));
-		return id;
+		return pairConversation(userA, userB, kind, null);
 	}
 
 	/**
@@ -142,12 +141,25 @@ public class MessagingService {
 	 */
 	@Transactional
 	public String serviceConversationBetween(String userA, String userB, String assunto) {
-		var existing = repository.findServiceBetween(userA, userB);
+		return pairConversation(userA, userB, "SERVICE", assunto);
+	}
+
+	/**
+	 * Conversa de PROPOSTA de freela entre quem propoe e quem publicou: profissional, uma por par
+	 * (a segunda proposta para a mesma pessoa continua na mesma conversa).
+	 */
+	@Transactional
+	public String freelanceConversationBetween(String proposerId, String posterId, String title) {
+		return pairConversation(proposerId, posterId, "FREELANCE", title);
+	}
+
+	private String pairConversation(String userA, String userB, String kind, String title) {
+		var existing = repository.findPairByKind(userA, userB, kind);
 		if (existing.isPresent()) {
 			return existing.get().id();
 		}
 		String id = "conversation_" + java.util.UUID.randomUUID().toString().replace("-", "");
-		repository.saveConversation(Conversation.create(id, "SERVICE", assunto, userA, clock.instant()));
+		repository.saveConversation(Conversation.create(id, kind, title, userA, clock.instant()));
 		repository.saveParticipant(ConversationParticipant.create(id, userA, clock.instant()));
 		repository.saveParticipant(ConversationParticipant.create(id, userB, clock.instant()));
 		return id;
@@ -225,7 +237,7 @@ public class MessagingService {
 		List<ConversationParticipant> participants = repository.findParticipantsByConversation(conversationId);
 		for (ConversationParticipant p : participants) {
 			if (p.userId().equals(senderId)) continue;
-			notificationService.create(p.userId(), "NEW_MESSAGE", senderId,
+			notificationService.create(p.userId(), messageNotificationKind(conversation), senderId,
 				"Nova mensagem", preview,
 				"/api/conversations/" + conversationId, "Responder");
 		}
@@ -278,12 +290,21 @@ public class MessagingService {
 		List<ConversationParticipant> participants = repository.findParticipantsByConversation(conversationId);
 		for (ConversationParticipant p : participants) {
 			if (p.userId().equals(senderId)) continue;
-			notificationService.create(p.userId(), "NEW_MESSAGE", senderId,
+			notificationService.create(p.userId(), messageNotificationKind(conversation), senderId,
 				"Nova mensagem", "Mensagem cifrada",
 				"/api/conversations/" + conversationId, "Responder");
 		}
 		coins.recordPresence(senderId);
 		return message;
+	}
+
+	/**
+	 * Mensagem de conversa profissional (candidatura, servico) avisa como NEW_WORK_MESSAGE: e o que
+	 * deixa o aviso na caixa profissional em vez da social.
+	 */
+	static String messageNotificationKind(Conversation conversation) {
+		return ConversationContext.of(conversation.kind()) == ConversationContext.PROFESSIONAL
+			? "NEW_WORK_MESSAGE" : "NEW_MESSAGE";
 	}
 
 	/**
@@ -333,8 +354,9 @@ public class MessagingService {
 		repository.markRead(conversationId, userId, clock.instant());
 	}
 
-	public List<Conversation> listConversations(String userId, java.time.Instant before, int limit) {
-		return repository.findConversationsByUserId(userId, before, limit);
+	public List<Conversation> listConversations(String userId, java.time.Instant before, ConversationContext context,
+			int limit) {
+		return repository.findConversationsByUserId(userId, before, context, limit);
 	}
 
 	public int hideConversations(String userId, java.util.List<String> ids) {
@@ -342,8 +364,9 @@ public class MessagingService {
 	}
 
 	/** As conversas arquivadas (apagadas so para quem chama). */
-	public List<Conversation> listArchivedConversations(String userId, java.time.Instant before, int limit) {
-		return repository.findArchivedConversationsByUserId(userId, before, limit);
+	public List<Conversation> listArchivedConversations(String userId, java.time.Instant before,
+			ConversationContext context, int limit) {
+		return repository.findArchivedConversationsByUserId(userId, before, context, limit);
 	}
 
 	/** Restaurar: a conversa volta para a caixa de entrada de quem chamou. */
@@ -380,8 +403,8 @@ public class MessagingService {
 		return repository.countUnread(conversationId, userId);
 	}
 
-	public int countTotalUnread(String userId) {
-		return repository.countTotalUnread(userId);
+	public int countTotalUnread(String userId, ConversationContext context) {
+		return repository.countTotalUnread(userId, context);
 	}
 
 	public List<Message> getMessages(String conversationId, String viewerId, java.time.Instant before, int limit) {

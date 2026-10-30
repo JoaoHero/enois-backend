@@ -52,8 +52,8 @@ class JobApplicationStatusNotifierAdapter implements JobApplicationStatusNotifie
 			"Atualização da sua candidatura", statusLine(job, status), "/vagas/" + job.id(), "Ver vaga");
 
 		try {
-			String conversationId = messagingService.directConversationBetween(application.userId(), job.postedBy());
-			// Sai do empregador: e ele quem decidiu, e a conversa e a mesma criada na candidatura.
+			String conversationId = messagingService.directConversationBetween(application.userId(), job.postedBy(), "JOB");
+			// Sai do empregador: e ele quem decidiu, na mesma conversa de candidatura (caixa profissional).
 			messagingService.sendMessage(conversationId, job.postedBy(), text);
 		}
 		catch (RuntimeException exception) {

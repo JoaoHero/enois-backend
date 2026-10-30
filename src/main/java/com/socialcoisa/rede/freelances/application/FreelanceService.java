@@ -10,10 +10,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.socialcoisa.rede.corporate.application.CorporateProfileService;
 import com.socialcoisa.rede.freelances.application.port.out.FreelanceRepository;
 import com.socialcoisa.rede.freelances.domain.Freelance;
+import com.socialcoisa.rede.messaging.application.MessagingService;
 import com.socialcoisa.rede.profile.application.port.out.UserProfileRepository;
 import com.socialcoisa.rede.shared.age.AgeGate;
+import com.socialcoisa.rede.shared.blocks.BlockedUsersReader;
 import com.socialcoisa.rede.shared.security.ActionThrottle;
 import com.socialcoisa.rede.shared.web.ApiException;
 import com.socialcoisa.rede.shared.web.TextFieldLimit;
@@ -27,14 +30,21 @@ public class FreelanceService {
 	private final UserProfileRepository profiles;
 	private final ActionThrottle throttle;
 	private final AgeGate ageGate;
+	private final CorporateProfileService corporateProfiles;
+	private final MessagingService messaging;
+	private final BlockedUsersReader blockedUsers;
 	private final Clock clock;
 
 	public FreelanceService(FreelanceRepository freelances, UserProfileRepository profiles,
-			ActionThrottle throttle, AgeGate ageGate, Clock clock) {
+			ActionThrottle throttle, AgeGate ageGate, CorporateProfileService corporateProfiles,
+			MessagingService messaging, BlockedUsersReader blockedUsers, Clock clock) {
 		this.freelances = freelances;
 		this.profiles = profiles;
 		this.throttle = throttle;
 		this.ageGate = ageGate;
+		this.corporateProfiles = corporateProfiles;
+		this.messaging = messaging;
+		this.blockedUsers = blockedUsers;
 		this.clock = clock;
 	}
 
@@ -85,6 +95,35 @@ public class FreelanceService {
 			throw new ApiException(409, "ALREADY_CLOSED", "Este freela já está encerrado.");
 		}
 		return freelances.save(f.close(clock.instant()));
+	}
+
+	/**
+	 * Proposta para um freela: sai da IDENTIDADE PROFISSIONAL de quem propoe (resolvida pela sessao)
+	 * e vai para a conversa FREELANCE, na caixa profissional. Antes o app abria a DM social e a
+	 * proposta saia do perfil pessoal. Devolve o id da conversa para o app abrir.
+	 */
+	@Transactional
+	public String propose(String freelanceId, String userId, String message) {
+		Freelance f = freelances.findById(freelanceId)
+			.orElseThrow(() -> new ApiException(404, "FREELANCE_NOT_FOUND", "Freela não encontrado."));
+		if (f.status() != Freelance.Status.OPEN) {
+			throw new ApiException(409, "FREELANCE_CLOSED", "Este freela já está encerrado.");
+		}
+		if (f.ownedBy(userId)) {
+			throw new ApiException(400, "CANNOT_PROPOSE_OWN_FREELANCE", "Você não pode enviar proposta para o seu freela.");
+		}
+		String text = message == null ? "" : message.trim();
+		if (text.isEmpty()) {
+			throw new ApiException(400, "EMPTY_PROPOSAL", "Escreva a sua proposta.");
+		}
+		TextFieldLimit.check("FREELANCE_FIELD_TOO_LONG", "proposta", text, 2000);
+		corporateProfiles.requireActive(userId);
+		if (blockedUsers.hiddenIdsFor(userId).contains(f.userId())) {
+			throw new ApiException(403, "USER_BLOCKED", "Não é possível conversar com este usuário.");
+		}
+		String conversationId = messaging.freelanceConversationBetween(userId, f.userId(), f.title());
+		messaging.sendMessage(conversationId, userId, "Proposta para o freela \"" + f.title() + "\"\n\n" + text);
+		return conversationId;
 	}
 
 	/** Aceita CASH/FAISCAS; sem valor, mantém o circuito da faísca (comportamento antigo). */

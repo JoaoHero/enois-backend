@@ -33,6 +33,7 @@ public enum NotificationCategory {
 		Map.entry("COMMENT_REACTION", SOCIAL),
 		Map.entry("MENTION", SOCIAL),
 		Map.entry("NEW_MESSAGE", MESSAGES),
+		Map.entry("NEW_WORK_MESSAGE", MESSAGES),
 		Map.entry("GROUP_MEMBER_JOINED", GROUPS),
 		Map.entry("GROUP_JOIN_REQUEST", GROUPS),
 		Map.entry("GROUP_JOIN_APPROVED", GROUPS),

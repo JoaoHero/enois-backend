@@ -63,6 +63,14 @@ class FreelanceController {
 		return Map.of("id", f.id(), "status", f.status().name());
 	}
 
+	/** Proposta: a identidade e a conversa profissionais sao decididas no servidor. */
+	@PostMapping("/freelances/{id}/proposals")
+	Map<String, Object> propose(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String id,
+			@RequestBody ProposalRequest request) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
+		return Map.of("conversationId", freelances.propose(id, user.id().value(), request == null ? null : request.message()));
+	}
+
 	private List<FreelanceView> views(List<Freelance> list, String viewer) {
 		Map<String, String> names = new HashMap<>();
 		profiles.findAllByIds(list.stream().map(Freelance::userId).distinct().toList())
@@ -82,6 +90,9 @@ class FreelanceController {
 	private static int parseCursor(String cursor) {
 		if (cursor == null || cursor.isBlank()) return 0;
 		try { return Math.max(0, Integer.parseInt(cursor.trim())); } catch (NumberFormatException e) { return 0; }
+	}
+
+	record ProposalRequest(String message) {
 	}
 
 	record CreateFreelanceRequest(String title, String scope, int budgetMin, int budgetMax, String deadline,
