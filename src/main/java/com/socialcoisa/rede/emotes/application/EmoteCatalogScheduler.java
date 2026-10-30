@@ -35,18 +35,22 @@ public class EmoteCatalogScheduler {
 		if (!enabled) {
 			return;
 		}
-		// Thread propria, NAO o pool comum: com um nucleo (`-XX:ActiveProcessorCount=1`) o pool comum
-		// nasce com paralelismo zero e a tarefa enfileirada nunca roda — o catalogo ficava no retrato
-		// embarcado ate o refresh agendado, tres horas depois. Foi o que aconteceu em QA em 2026-10-29:
-		// o pod subiu as 02:11 e o catalogo so saiu do retrato as 03:00, na rodada do cron.
+		// Em segundo plano: as listagens do FFZ levam alguns segundos cada e o readiness nao espera.
+		// Thread propria para a montagem nao depender do agendador comum. Inicio e fim vao para o log:
+		// em QA de 2026-10-29 o catalogo ficou no retrato embarcado do boot ate a rodada do cron das
+		// 03:00 e nao sobrou linha nenhuma dizendo se a montagem comecou e onde parou.
+		LOG.info("Catalogo de figurinhas: montagem no boot iniciando em segundo plano.");
 		Thread.ofVirtual().name("figurinhas-boot").start(this::buildOnBoot);
 	}
 
 	private void buildOnBoot() {
 		try {
 			catalogService.refresh();
+			LOG.info("Catalogo de figurinhas: montagem no boot concluida.");
 		}
-		catch (RuntimeException falha) {
+		catch (Throwable falha) {
+			// Throwable, e nao RuntimeException: um erro que nao e excecao terminava a thread sem
+			// deixar rastro no log, e a montagem simplesmente nao acontecia.
 			LOG.warn("Falha ao montar o catalogo de figurinhas no boot (segue com o embarcado).", falha);
 		}
 	}

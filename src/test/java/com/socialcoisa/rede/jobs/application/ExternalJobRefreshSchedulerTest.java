@@ -1,5 +1,6 @@
 package com.socialcoisa.rede.jobs.application;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.timeout;
@@ -23,9 +24,22 @@ class ExternalJobRefreshSchedulerTest {
 
 		agendador.seedIfEmpty();
 
-		// Regressao: a carga nao pode depender de thread do pool comum — em pod de um nucleo o pool
-		// nasce com paralelismo zero e a tarefa enfileirada nunca roda.
+		// Regressao: a carga nao pode depender da thread do agendador comum.
 		verify(importService, timeout(5_000)).refresh();
+	}
+
+	@Test
+	void erroQueNaoEExcecaoNaPrimeiraCargaNaoEscapaDaThread() throws Exception {
+		when(importService.refresh()).thenThrow(new NoClassDefFoundError("com/exemplo/Sumiu"));
+		ExternalJobRefreshScheduler agendador = new ExternalJobRefreshScheduler(importService, repository, true);
+
+		agendador.seedIfEmpty();
+
+		// Regressao: um Error matava a thread sem log e a carga simplesmente nao acontecia.
+		verify(importService, timeout(5_000)).refresh();
+		Thread.sleep(200);
+		assertThat(Thread.getAllStackTraces().keySet().stream().map(Thread::getName))
+			.doesNotContain("vagas-externas-boot");
 	}
 
 	@Test

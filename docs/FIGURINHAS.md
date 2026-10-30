@@ -42,9 +42,11 @@ Regras da junção:
 ## Atualização
 
 - no boot, o catálogo nasce do retrato embarcado (ninguém encontra seletor vazio) e a montagem
-  completa roda em segundo plano (`ApplicationReadyEvent`) numa **thread própria**: com um núcleo,
-  o pool comum do Java nasce com paralelismo zero e a tarefa enfileirada nele nunca roda — em QA o
-  catálogo ficou no retrato embarcado até a rodada do cron, três horas depois;
+  completa roda em segundo plano (`ApplicationReadyEvent`) numa **thread própria**, fora do caminho
+  do readiness. Início e fim da montagem ficam no log (`Catalogo de figurinhas: montagem no boot …`):
+  em QA o catálogo ficou no retrato embarcado até a rodada do cron sem que o log dissesse se a
+  montagem começou — o `catch` agora pega `Throwable`, então nem erro de carregamento de classe
+  termina a thread em silêncio;
 - depois, `@Scheduled` de **3 em 3 horas** (`rede.emotes.refresh-cron`);
 - o refresh é serializado (`synchronized`) e fora do caminho da requisição: a leitura sempre pega o
   catálogo anterior, inteiro.
@@ -87,6 +89,16 @@ Endereços de origem:
 |---|---|---|---|
 | BTTV | `1x.png` | `2x.png` | `1x.gif` (queda: `2x.png`) |
 | FFZ | `1` | `2` | `animated/2` (queda: `2`) |
+
+## Figurinha de nome barrado
+
+`EmoteNamePolicy` aplica a política de conteúdo ao **código** de cada figurinha que chega das
+fontes: nome que remete a conteúdo sexual **não entra no catálogo** — e o que não entra no catálogo
+também não é baixado, porque `GET /emotes/image/{provider}/{id}` recusa a arte de nome barrado antes
+de falar com o CDN (`EmoteCatalogService.isBlocked`). A normalização de código (minúsculas, sem
+acento, sem separador, com letra trocada por número desfeita) faz o nome "parecido" cair na mesma
+regra que o exato; termos fracos só casam como palavra inteira, para não barrar figurinha inocente.
+Sem chave de modelo e sem denúncia: é bloqueio por nome, na entrada.
 
 ## Configuração
 

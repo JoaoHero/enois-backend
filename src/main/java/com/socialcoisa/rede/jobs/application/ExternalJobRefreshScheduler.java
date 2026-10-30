@@ -38,9 +38,9 @@ public class ExternalJobRefreshScheduler {
 		// Em SEGUNDO PLANO: a primeira carga traz TODAS as vagas da fonte (milhares) e nao pode
 		// atrasar o readiness do pod. O refresh diario cuida das atualizacoes.
 		//
-		// Thread propria, NAO o pool comum: com um nucleo (`-XX:ActiveProcessorCount=1`) o pool comum
-		// nasce com paralelismo zero e a tarefa enfileirada nunca roda — a carga so aconteceria na
-		// meia-noite seguinte.
+		// Thread propria para a carga nao depender do agendador comum; inicio e fim vao para o log
+		// para nao repetir o caso em que a carga simplesmente nao aconteceu e nao deixou rastro.
+		LOG.info("Vagas externas: carga de boot iniciando em segundo plano.");
 		Thread.ofVirtual().name("vagas-externas-boot").start(this::seedOnBoot);
 	}
 
@@ -50,7 +50,7 @@ public class ExternalJobRefreshScheduler {
 			// boot, em segundo plano, para o catalogo ficar completo sem esperar a meia-noite.
 			LOG.info("Carga de vagas externas: {}", importService.refresh());
 		}
-		catch (RuntimeException failure) {
+		catch (Throwable failure) {
 			LOG.warn("Falha na primeira carga de vagas externas (segue sem elas).", failure);
 		}
 	}

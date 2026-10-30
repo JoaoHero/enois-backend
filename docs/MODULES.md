@@ -963,9 +963,9 @@ inválidas são rejeitadas integralmente. A operação exige autenticação e ch
 | Classe | Descrição |
 |---|---|
 | `Report` | Entidade: id, reporterId, targetType, targetId, reason, description, status |
-| `ReportReason` | Enum: `SPAM`, `INAPPROPRIATE`, `ABUSIVE`, `MISINFORMATION`, `COPYRIGHT`, `OTHER` |
-| `ReportStatus` | Enum: `PENDING`, `APPROVED`, `DISMISSED` |
-| `TargetType` | Enum: `POST`, `COMMENT`, `USER`, `COMMUNITY`, `JOB`, `EVENT` |
+| `ReportReason` | Enum: `AI_GENERATED`, `FAKE_CONTENT`, `SCAM`, `DISCRIMINATION`, `PREJUDICE`, `HARASSMENT`, `SPAM`, `VIOLENCE`, `SEXUAL_CONTENT`, `COPYRIGHT`, `OTHER` |
+| `ReportStatus` | Enum: `PENDING`, `AUTO_PENALIZED`, `APPROVED`, `DISMISSED` |
+| `TargetType` | Enum: `POST`, `COMMENT`, `USER`, `JOB`, `GAME`, `GROUP_POST`, `GROUP_COMMENT`, `MESSAGE` |
 
 ### ReportController
 
@@ -977,6 +977,33 @@ inválidas são rejeitadas integralmente. A operação exige autenticação e ch
 | `listPending(...)` | GET /api/admin/reports |
 | `approve(...)` | POST /api/admin/reports/{reportId}/approve |
 | `dismiss(...)` | POST /api/admin/reports/{reportId}/dismiss |
+
+### SanctionService (fila de penalidades do admin)
+
+**Arquivo**: `src/main/java/com/socialcoisa/rede/moderation/application/SanctionService.java`
+
+Correção manual de penalidades aplicadas erradas: o admin lista quem está penalizado, remove a
+sanção (conta liberada, denúncia de origem descartada) ou corrige o tipo/motivo sem remover.
+Rebaixar um ban libera o login de volta — o conteúdo purgado pelo ban não volta.
+
+| Função | Rota |
+|---|---|
+| `adminSanctions(status, limit)` | GET /api/admin/sanctions?status=ACTIVE\|REMOVED |
+| `revokeSanction(adminId, sanctionId, reason)` | POST /api/admin/sanctions/{sanctionId}/revoke |
+| `editSanction(adminId, sanctionId, type, reason)` | POST /api/admin/sanctions/{sanctionId}/edit |
+
+### ContentQuarantineReviewService
+
+**Arquivo**: `src/main/java/com/socialcoisa/rede/moderation/application/ContentQuarantineReviewService.java`
+
+Fila de revisão do que a barreira de conteúdo automatizado tirou do ar. Liberar devolve o post ao
+ar; remover apaga o post. Nenhuma das duas pune a conta. Ver `docs/MODERACAO-CONTEUDO.md`.
+
+| Função | Rota |
+|---|---|
+| `pending(limit)` | GET /api/moderation/quarantine |
+| `release(reviewerId, postId)` | POST /api/moderation/quarantine/{postId}/release |
+| `remove(reviewerId, postId)` | POST /api/moderation/quarantine/{postId}/remove |
 
 ---
 
