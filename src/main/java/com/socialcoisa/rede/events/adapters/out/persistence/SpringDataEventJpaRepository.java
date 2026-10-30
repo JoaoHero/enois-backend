@@ -15,11 +15,24 @@ interface SpringDataEventJpaRepository extends JpaRepository<EventJpaEntity, Str
 	List<EventJpaEntity> findBySanitizedAtBefore(java.time.Instant threshold);
 
 
-	@Query("SELECT e FROM EventJpaEntity e WHERE (:before IS NULL OR e.createdAt < :before) ORDER BY e.createdAt DESC")
-	List<EventJpaEntity> findAllBefore(@Param("before") Instant before, Pageable pageable);
-
-	@Query("SELECT e FROM EventJpaEntity e WHERE e.format = :format AND (:before IS NULL OR e.createdAt < :before) ORDER BY e.createdAt DESC")
-	List<EventJpaEntity> findByFormat(@Param("format") String format, @Param("before") Instant before,
+	@Query("SELECT e FROM EventJpaEntity e WHERE (:before IS NULL OR e.createdAt < :before)"
+		+ " AND (:recurringOnly = false OR e.recurrence <> 'NONE') ORDER BY e.createdAt DESC")
+	List<EventJpaEntity> findAllBefore(@Param("before") Instant before, @Param("recurringOnly") boolean recurringOnly,
 			Pageable pageable);
+
+	@Query("SELECT e FROM EventJpaEntity e WHERE e.format = :format AND (:before IS NULL OR e.createdAt < :before)"
+		+ " AND (:recurringOnly = false OR e.recurrence <> 'NONE') ORDER BY e.createdAt DESC")
+	List<EventJpaEntity> findByFormat(@Param("format") String format, @Param("before") Instant before,
+			@Param("recurringOnly") boolean recurringOnly, Pageable pageable);
+
+	List<EventJpaEntity> findByRecurrenceNot(String recurrence);
+
+	java.util.Optional<EventJpaEntity> findFirstBySeriesIdOrderByCreatedAtDesc(String seriesId);
+
+	boolean existsBySeriesIdAndDate(String seriesId, String date);
+
+	@org.springframework.data.jpa.repository.Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("UPDATE EventJpaEntity e SET e.recurrence = :recurrence WHERE e.seriesId = :seriesId")
+	int updateSeriesRecurrence(@Param("seriesId") String seriesId, @Param("recurrence") String recurrence);
 
 }

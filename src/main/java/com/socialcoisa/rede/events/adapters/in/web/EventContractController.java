@@ -8,6 +8,7 @@ import java.util.Set;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.socialcoisa.rede.events.application.EventRecurrenceService;
 import com.socialcoisa.rede.events.application.EventService;
 import com.socialcoisa.rede.events.domain.Event;
 import com.socialcoisa.rede.idempotency.application.CommandResponse;
@@ -38,13 +40,17 @@ class EventContractController {
 
 	private final AdminGuard adminGuard;
 
+	private final EventRecurrenceService recurrenceService;
+
 	EventContractController(IdempotencyApplicationService idempotency, CurrentUserResolver currentUserResolver,
-			EventService eventService, CursorCodec cursorCodec, AdminGuard adminGuard) {
+			EventService eventService, CursorCodec cursorCodec, AdminGuard adminGuard,
+			EventRecurrenceService recurrenceService) {
 		this.idempotency = idempotency;
 		this.currentUserResolver = currentUserResolver;
 		this.eventService = eventService;
 		this.cursorCodec = cursorCodec;
 		this.adminGuard = adminGuard;
+		this.recurrenceService = recurrenceService;
 	}
 
 	/**
@@ -75,14 +81,18 @@ class EventContractController {
 		}
 	}
 
-	/** Lista os eventos que ainda vao acontecer; `includePast=true` inclui o historico (com selo). */
+	/**
+	 * Lista os eventos que ainda vao acontecer; `includePast=true` inclui o historico (com selo) e
+	 * `recurring=true` deixa so os rituais (eventos com recorrencia).
+	 */
 	@GetMapping
 	PageResponse<EventView> events(@RequestParam(required = false) String format,
 			@RequestParam(required = false) String cursor, @RequestParam(defaultValue = "20") int limit,
 			@RequestParam(defaultValue = "false") boolean includePast,
+			@RequestParam(defaultValue = "false") boolean recurring,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
 		Instant before = cursorCodec.decode(cursor).orElse(null);
-		var page = eventService.list(format, before, limit, includePast);
+		var page = eventService.list(format, before, limit, includePast, recurring);
 		String viewer = viewerId(sessionToken);
 		List<String> ids = page.items().stream().map(Event::id).toList();
 		Set<String> attendingIds = viewer != null ? eventService.attendingEventIds(viewer, ids) : Set.of();
@@ -98,7 +108,9 @@ class EventContractController {
 		Integer finalCount = event.finalAttendeesCount();
 		int attendees = finalCount != null ? finalCount : eventService.countAttendees(event.id());
 		return new EventView(event.id(), event.title(), event.date(), event.time(), event.format(), event.host(),
-			attendees, event.cover(), event.streamUrl(), event.location(), eventService.hasEnded(event), attending);
+			attendees, event.cover(), event.streamUrl(), event.location(), eventService.hasEnded(event), attending,
+			event.recurrence().name(), event.seriesId(),
+			recurrenceService.nextOccurrenceDate(event).map(java.time.LocalDate::toString).orElse(null));
 	}
 
 	@GetMapping("/{eventId}")
@@ -120,9 +132,24 @@ class EventContractController {
 		return idempotency.execute(user.id(), "POST", "/api/events", idempotencyKey, hash,
 			() -> {
 				Event e = eventService.create(request.title(), request.date(), request.time(), request.format(),
-					request.host(), request.cover(), request.streamUrl(), request.location(),
+					request.host(), request.cover(), request.streamUrl(), request.location(), request.recurrence(),
 					user.id().value());
 				return new CommandResponse(201, toView(e, false));
+			});
+	}
+
+	/** Liga, troca ou desliga a recorrencia (so quem criou). NONE encerra a serie. */
+	@PatchMapping("/{eventId}/recurrence")
+	ResponseEntity<String> changeRecurrence(
+			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+			@PathVariable String eventId, @RequestBody RecurrenceRequest request) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
+		String hash = idempotency.hash(Map.of("eventId", eventId, "recurrence", String.valueOf(request.recurrence())));
+		return idempotency.execute(user.id(), "PATCH", "/api/events/{eventId}/recurrence", idempotencyKey, hash,
+			() -> {
+				Event event = eventService.changeRecurrence(eventId, request.recurrence(), user.id().value());
+				return new CommandResponse(200, toView(event, false));
 			});
 	}
 
@@ -163,11 +190,15 @@ class EventContractController {
 	}
 
 	record EventView(String id, String title, String date, String time, String format, String host, int attendees,
-			String cover, String streamUrl, String location, boolean expired, boolean attending) {
+			String cover, String streamUrl, String location, boolean expired, boolean attending, String recurrence,
+			String seriesId, String nextOccurrenceDate) {
 	}
 
 	record CreateEventRequest(String title, String date, String time, String format, String host, String cover,
-			String streamUrl, String location) {
+			String streamUrl, String location, String recurrence) {
+	}
+
+	record RecurrenceRequest(String recurrence) {
 	}
 
 }
