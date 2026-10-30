@@ -11,7 +11,7 @@ documento descreve o cálculo automático da **cotação de referência** (BRL) 
 
 ## Como o cálculo roda
 
-`CoinEconomyService` executa uma vez por dia (`rede.coin.economy.cron`, padrão `0 10 3 * * *`):
+`CoinEconomyService` executa a cada 3 horas (`rede.coin.economy.cron`, padrão `0 10 */3 * * *`):
 
 1. Mede, na janela (`window-days`, padrão 30 dias), quatro coisas no ledger:
    - **Uso em escrow** (`ESCROW_HOLD`): compras no marketplace e contratos de serviço pagos em
@@ -29,16 +29,30 @@ documento descreve o cálculo automático da **cotação de referência** (BRL) 
 4. Se o valor mudou **e o período já fechou**, publica uma nova linha em `coin_rate_history` — a
    mini bolsa mostra o histórico. Sem mudança, nada é gravado.
 
-**Cadência: uma publicação por período.** O período é `period-hours` (padrão 24h) contado da
-última publicação. O cron diário e o botão `POST /admin/carteira/economia/recalcular` obedecem à
-mesma regra: fora do período, nada é publicado e o valor não se move — clicar repetidamente não
-equivale a vários dias de mercado. Diferente de um passo proporcional ao tempo decorrido, a
+**Cadência: uma publicação por período.** O período é `period-hours` (padrão 3h) contado da
+última publicação. O cron de 3h em 3h e o botão `POST /admin/carteira/economia/recalcular` obedecem
+à mesma regra: fora do período, nada é publicado e o valor não se move — clicar repetidamente não
+equivale a vários períodos de mercado. Diferente de um passo proporcional ao tempo decorrido, a
 cotação anda um passo inteiro por período, sempre para cima ou para baixo conforme o movimento
 medido; quem decide é a janela, não o relógio do clique.
 
+### A rodada completa mensal (validação de referência)
+
+No **1º dia de cada mês** (`rede.coin.economy.monthly-cron`, padrão `0 40 3 1 * *`) roda o cálculo
+COMPLETO: o preço é recalculado **do zero** — âncora (`anchor-micros`, padrão a cotação inicial de
+1 centavo) × índice da janela de 30 dias — **sem partir do último valor publicado** e **sem o
+limite de passo**. É a validação de referência da cotação: o controle de passo curto das 3h pode
+se acumular fora do rumo, e a rodada mensal corrige o preço inteiro de uma vez (piso e teto
+continuam valendo). Publica mesmo que o período de 3h não tenha fechado — a trava do período é do
+controle suave, não da validação mensal; só não publica se o resultado for igual ao vigente.
+
+```
+cotaçãoCompleta = clamp(âncora × índice, min, max)
+```
+
 **Economia parada derruba o preço:** sem uso, sem P2P e sem retorno ao cofre o índice vai a zero e
-a cotação cede um passo por dia (até o piso). O cofre precisa continuar recebendo faíscas para a
-economia não secar.
+a cotação cede um passo por execução (até o piso). O cofre precisa continuar recebendo faíscas
+para a economia não secar.
 
 ### Fórmula
 
@@ -133,9 +147,11 @@ permitir passos de 1%. A API expõe:
 | Propriedade | Env | Padrão |
 |---|---|---|
 | `rede.coin.economy.enabled` | `COIN_ECONOMY_ENABLED` | `true` |
-| `rede.coin.economy.cron` | `COIN_ECONOMY_CRON` | `0 10 3 * * *` |
+| `rede.coin.economy.cron` | `COIN_ECONOMY_CRON` | `0 10 */3 * * *` |
 | `rede.coin.economy.zone` | `COIN_ECONOMY_ZONE` | `America/Sao_Paulo` |
-| `rede.coin.economy.period-hours` | `COIN_ECONOMY_PERIOD_HOURS` | `24` |
+| `rede.coin.economy.monthly-cron` | `COIN_ECONOMY_MONTHLY_CRON` | `0 40 3 1 * *` |
+| `rede.coin.economy.anchor-micros` | `COIN_ECONOMY_ANCHOR_MICROS` | `10000` (1 centavo) |
+| `rede.coin.economy.period-hours` | `COIN_ECONOMY_PERIOD_HOURS` | `3` |
 | `rede.coin.economy.window-days` | `COIN_ECONOMY_WINDOW_DAYS` | `30` |
 | `rede.coin.economy.target-turnover` | `COIN_ECONOMY_TARGET_TURNOVER` | `0.05` |
 | `rede.coin.economy.p2p-weight` | `COIN_ECONOMY_P2P_WEIGHT` | `0.5` |
