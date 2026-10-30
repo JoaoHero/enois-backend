@@ -81,8 +81,8 @@ class StudyPairFlowTests {
 		String pairId = body(requestPair(b, "aprender rúst SP-MATCH").andExpect(status().isCreated())
 			.andExpect(jsonPath("$.status").value("MATCHED"))).get("pairId").asText();
 
-		assertThat(notifications(a.userId(), StudyPairService.KIND_MATCHED)).isEqualTo(1);
-		assertThat(notifications(b.userId(), StudyPairService.KIND_MATCHED)).isEqualTo(1);
+		assertThat(notifications(a.userId(), "STUDY_PAIR_MATCHED")).isEqualTo(1);
+		assertThat(notifications(b.userId(), "STUDY_PAIR_MATCHED")).isEqualTo(1);
 		me(a).andExpect(jsonPath("$.openRequest").doesNotExist())
 			.andExpect(jsonPath("$.pairs[0].id").value(pairId))
 			.andExpect(jsonPath("$.pairs[0].goal").value("Aprender Rust sp-match"))
@@ -168,7 +168,7 @@ class StudyPairFlowTests {
 			.andExpect(jsonPath("$.note").value("estudei ownership"));
 		checkin(a, pairId, "estudei ownership e borrowing").andExpect(status().isOk());
 
-		assertThat(notifications(b.userId(), StudyPairService.KIND_CHECKIN)).isEqualTo(1);
+		assertThat(notifications(b.userId(), "STUDY_PAIR_CHECKIN")).isEqualTo(1);
 		assertThat(jdbc.queryForObject("select count(*) from study_checkins where pair_id = ? and user_id = ?",
 			Integer.class, pairId, a.userId())).isEqualTo(1);
 		me(b).andExpect(jsonPath("$.pairs[0].partnerCheckinThisWeek").value(true))
@@ -197,7 +197,7 @@ class StudyPairFlowTests {
 		String pairId = pair(a, b, "goal sp-end");
 
 		end(b, pairId).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ENDED"));
-		assertThat(notifications(a.userId(), StudyPairService.KIND_ENDED)).isEqualTo(1);
+		assertThat(notifications(a.userId(), "STUDY_PAIR_ENDED")).isEqualTo(1);
 		end(a, pairId).andExpect(status().isConflict());
 		checkin(a, pairId, "ainda aqui").andExpect(status().isConflict());
 		me(a).andExpect(jsonPath("$.pairs.length()").value(0));
@@ -214,8 +214,8 @@ class StudyPairFlowTests {
 		// A second run in the same week (another replica, a restart) sends nothing new.
 		service.sendWeeklyReminders();
 
-		assertThat(notifications(a.userId(), StudyPairService.KIND_REMINDER)).isZero();
-		assertThat(notifications(b.userId(), StudyPairService.KIND_REMINDER)).isEqualTo(1);
+		assertThat(notifications(a.userId(), "STUDY_PAIR_REMINDER")).isZero();
+		assertThat(notifications(b.userId(), "STUDY_PAIR_REMINDER")).isEqualTo(1);
 	}
 
 	@Test
@@ -227,7 +227,7 @@ class StudyPairFlowTests {
 
 		checkin(b, pairId, "oi").andExpect(status().isConflict());
 		me(b).andExpect(jsonPath("$.pairs.length()").value(0));
-		assertThat(notifications(b.userId(), StudyPairService.KIND_ENDED)).isZero();
+		assertThat(notifications(b.userId(), "STUDY_PAIR_ENDED")).isZero();
 	}
 
 	@Test
@@ -251,7 +251,7 @@ class StudyPairFlowTests {
 		// The muted side (a) is the one asking: the check must look both ways.
 		me(a).andExpect(jsonPath("$.pairs.length()").value(0));
 		checkin(a, pairId, "oi").andExpect(status().isConflict());
-		assertThat(notifications(a.userId(), StudyPairService.KIND_ENDED)).isZero();
+		assertThat(notifications(a.userId(), "STUDY_PAIR_ENDED")).isZero();
 	}
 
 	@Test
@@ -274,8 +274,8 @@ class StudyPairFlowTests {
 		pair(a, b, "goal sp-off-3");
 		disableModule(a);
 		service.sendWeeklyReminders();
-		assertThat(notifications(a.userId(), StudyPairService.KIND_REMINDER)).isZero();
-		assertThat(notifications(b.userId(), StudyPairService.KIND_REMINDER)).isEqualTo(1);
+		assertThat(notifications(a.userId(), "STUDY_PAIR_REMINDER")).isZero();
+		assertThat(notifications(b.userId(), "STUDY_PAIR_REMINDER")).isEqualTo(1);
 	}
 
 	@Test

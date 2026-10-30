@@ -47,10 +47,6 @@ import com.socialcoisa.rede.studypairs.domain.StudyPairRequest;
 @Service
 public class StudyPairService {
 
-	public static final String KIND_MATCHED = "STUDY_PAIR_MATCHED";
-	public static final String KIND_CHECKIN = "STUDY_PAIR_CHECKIN";
-	public static final String KIND_ENDED = "STUDY_PAIR_ENDED";
-	public static final String KIND_REMINDER = "STUDY_PAIR_REMINDER";
 	/** Key in /me/preferences disabledModules that turns this module off for a person. */
 	public static final String MODULE = "STUDY_PAIRS";
 
@@ -241,7 +237,7 @@ public class StudyPairService {
 		}
 		repository.insertCheckin(new StudyCheckin(pairId, userId, week, note, now, now));
 		// Only the first check-in of the week notifies; editing the note stays quiet.
-		profiles.findById(userId).ifPresent(me -> notifications.create(pair.partnerOf(userId), KIND_CHECKIN, userId,
+		profiles.findById(userId).ifPresent(me -> notifications.create(pair.partnerOf(userId), "STUDY_PAIR_CHECKIN", userId,
 			"Seu par fez o check-in da semana",
 			"@" + me.username() + " contou como foi a semana em \"" + pair.goalText() + "\".", HREF,
 			"Ver check-in"));
@@ -254,7 +250,7 @@ public class StudyPairService {
 		if (!repository.endPair(pairId, clock.instant())) {
 			throw new ApiException(409, "STUDY_PAIR_ENDED", "Este par de estudo já foi encerrado.");
 		}
-		profiles.findById(userId).ifPresent(me -> notifications.create(pair.partnerOf(userId), KIND_ENDED, userId,
+		profiles.findById(userId).ifPresent(me -> notifications.create(pair.partnerOf(userId), "STUDY_PAIR_ENDED", userId,
 			"Um par de estudo foi encerrado",
 			"@" + me.username() + " encerrou o par em \"" + pair.goalText() + "\". Obrigado pela companhia nessas "
 				+ "semanas. Quando quiser, você pode procurar um novo par.",
@@ -282,7 +278,7 @@ public class StudyPairService {
 				if (done.contains(member) || moduleDisabled(member) || !repository.claimReminder(pair.id(), member, week, clock.instant())) {
 					continue;
 				}
-				notifications.create(member, KIND_REMINDER, "sistema", "Como foi sua semana de estudo?",
+				notifications.create(member, "STUDY_PAIR_REMINDER", "sistema", "Como foi sua semana de estudo?",
 					"Um check-in curto já ajuda seu par em \"" + pair.goalText() + "\". Sem pressa.", HREF,
 					"Fazer check-in");
 				sent++;
@@ -324,7 +320,7 @@ public class StudyPairService {
 	}
 
 	private void notifyMatched(String recipientId, UserProfile partner, String goal) {
-		notifications.create(recipientId, KIND_MATCHED, partner.id(), "Você tem um par de estudo",
+		notifications.create(recipientId, "STUDY_PAIR_MATCHED", partner.id(), "Você tem um par de estudo",
 			"Você e @" + partner.username() + " querem \"" + goal + "\". Um check-in por semana, no ritmo de vocês.",
 			HREF, "Ver par");
 	}

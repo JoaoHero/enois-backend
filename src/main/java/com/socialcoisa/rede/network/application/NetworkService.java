@@ -47,6 +47,10 @@ public class NetworkService {
 		if (blockRepository.hiddenBetween(requesterUserId, receiverUserId)) {
 			throw new ApiException(403, "BLOCKED", "Esta conexao nao esta disponivel.");
 		}
+		// Without this an unknown id left a pending request (and a notification) for nobody.
+		if (userProfileRepository.findById(receiverUserId).isEmpty()) {
+			throw new ApiException(404, "USER_NOT_FOUND", "Usuario nao encontrado.");
+		}
 		var existing = connectionRepository.findBetweenUsers(requesterUserId, receiverUserId);
 		if (existing.isPresent()) {
 			var conn = existing.get();

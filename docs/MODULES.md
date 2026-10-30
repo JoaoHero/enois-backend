@@ -374,6 +374,7 @@ Implementa: `CommentOnPostUseCase`, `GetCommentsUseCase`, `ReactToPostUseCase`, 
 | `IdGenerator` | `generate()` |
 | `ConnectionGraphRepository` | `findFriends`, `findFriendsOfFriends`, `findUserTags` |
 | `FeedCacheRepository` | `prepend`, `get`, `removeEverywhere` |
+| `FeedSeenMarkerRepository` | `lastSeenAt`, `advance` (marcador "Você está em dia") |
 | `AuditLogRepository` | `record` |
 | `OutboxEventRepository` | `append` |
 
@@ -402,6 +403,26 @@ Implementa: `CommentOnPostUseCase`, `GetCommentsUseCase`, `ReactToPostUseCase`, 
 | `saved(...)` | GET /api/feed/saved |
 | `reactToComment(...)` | POST /api/feed/posts/{postId}/comments/{commentId}/reactions |
 | `commentReactions(...)` | GET /api/feed/posts/{postId}/comments/{commentId}/reactions |
+
+**FeedSeenController**: `src/main/java/com/socialcoisa/rede/feed/adapters/in/web/FeedSeenController.java`
+
+| Função | Rota |
+|---|---|
+| `seen(...)` | POST /api/feed/seen (avança o marcador "Você está em dia") |
+
+### Marcador "Você está em dia"
+
+Um ponto de parada explícito no feed ("você já viu tudo o que é novo desde a última visita"), em vez de
+rolagem infinita. Uma linha por pessoa em `feed_seen_markers` (V214), lida e gravada por
+`FeedSeenMarkerRepository` (`FeedSeenMarkerJdbcAdapter`).
+
+- `GET /api/feed` sem `cursor` devolve `lastSeenAt`: o marcador **antes** desta visita (ou `null`).
+  Páginas com `cursor` devolvem `null`; o front guarda o valor da primeira página. Abas ranqueadas
+  (`FOR_YOU`, `TRENDING`, `INTERACTED`) também devolvem `null`: o divisor depende de ordem cronológica.
+- `POST /api/feed/seen {seenUntil}` é um único upsert com `greatest(...)`: o marcador nunca volta, mesmo
+  com chamadas concorrentes ou fora de ordem, e o valor é limitado ao relógio do servidor (sem futuro).
+- Front: desenhar o divisor "Você está em dia" antes do primeiro post com `createdAt <= lastSeenAt`;
+  chamar `POST /api/feed/seen` com o `createdAt` do post mais recente depois que a pessoa rolar além dele.
 
 ---
 
@@ -909,6 +930,17 @@ inválidas são rejeitadas integralmente. A operação exige autenticação e ch
 | `read(...)` | POST /api/notifications/{notificationId}/read |
 | `readAll(...)` | POST /api/notifications/read-all |
 
+### Preferências e resumo semanal
+
+Detalhes em [`DIGEST.md`](DIGEST.md).
+
+| Classe | Descrição |
+|---|---|
+| `NotificationCategory` | Mapa único kind → categoria de push (`ALWAYS` para segurança/moderação/sanção) |
+| `NotificationPreferenceService` | Lê/grava as preferências (`notification_preferences`); `allowsPush(userId, kind)` |
+| `NotificationPreferenceController` | GET/PUT /api/me/notification-preferences, GET /api/notifications/digest/unsubscribe |
+| `WeeklyDigestService` | Agendamento, conteúdo, envio único por semana ISO e token de descadastro |
+
 ---
 
 ## 14. Search (Busca)
@@ -1174,6 +1206,10 @@ Notificações push no navegador (VAPID): inscrição, cancelamento e configura�
 | `GET /push/config` | Chave pública VAPID |
 | `POST /push/subscriptions` / `DELETE /push/subscriptions` | Inscrever / cancelar dispositivo |
 
+`PushNotificationListener` espelha cada notificação criada como push depois do commit, **exceto** quando
+a pessoa desligou a categoria do kind (`NotificationPreferenceService.allowsPush`). A notificação
+in-app é criada do mesmo jeito; segurança, moderação e sanção sempre viram push. Ver [`DIGEST.md`](DIGEST.md).
+
 ## 27. Gifs (Busca de GIFs)
 
 Busca de GIFs para os comentários, via provedores externos (Tenor/Giphy).
@@ -1312,7 +1348,28 @@ backend — era o CDN do FFZ que deixava metade da grade vazia (30% de falha, ti
 
 Todas são leitura pública. Documentação detalhada em [`FIGURINHAS.md`](FIGURINHAS.md).
 
-## 38. StudyPairs (Par de estudo)
+## 38. Onboarding (primeira entrada)
+
+Conta nova sai da confirmação de e-mail para um feed vazio; o onboarding sugere por onde começar
+(comunidades, grupos abertos e pessoas) e aplica o que a pessoa escolheu. `users.onboarding_completed_at`
+(V210) marca o fim, concluído ou pulado; contas que já existiam na V210 foram marcadas como
+concluídas. O estado sai em `onboardingCompleted` de `/auth/me`.
+
+O ranking do pacote fica no SQL (`JdbcStarterPackAdapter`): o que casa primeiro, o popular depois.
+As escritas passam pelos serviços da ação manual (`CommunityService.join`, `GroupService.join` só
+para grupo `OPEN`, `NetworkService.requestConnection`), com tetos baixos para ser escolha de pessoa,
+não automação. `complete` não é uma transação única: cada entrada confirma sozinha e a repetição
+pula o que já existe.
+
+| Rota | Descrição |
+|---|---|
+| `GET /me/onboarding/starter-pack` | Sugestões (até 6 comunidades, 6 grupos, 8 pessoas) |
+| `POST /me/onboarding/complete` | Aplica as escolhas e marca como concluído |
+| `POST /me/onboarding/skip` | Marca como concluído sem mudanças |
+
+Arquivos: `OnboardingController`, `OnboardingService`, `StarterPackReader`, `JdbcStarterPackAdapter`.
+
+## 39. StudyPairs (Par de estudo)
 
 Duas pessoas com o mesmo objetivo de estudo e um check-in por semana. O pedido fica aberto até
 aparecer alguém com o mesmo objetivo normalizado (`StudyGoal.key`: minúsculo, sem acento); o mais
