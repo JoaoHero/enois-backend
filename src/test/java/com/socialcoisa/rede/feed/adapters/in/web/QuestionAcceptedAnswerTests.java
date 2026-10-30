@@ -32,12 +32,15 @@ import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.socialcoisa.rede.coin.application.CoinService;
+import com.socialcoisa.rede.feed.application.UserContentPurgeService;
+import com.socialcoisa.rede.moderation.application.BanCleanupService;
 import com.socialcoisa.rede.shared.web.TestAuthHelper;
 import com.socialcoisa.rede.shared.web.TestAuthHelper.AuthSession;
 
 /**
  * Duvidas com resposta aceita: so quem perguntou aceita, a resposta precisa ser de outra pessoa e
  * desta duvida, e a faisca de "ajuda" sai uma vez por duvida (trocar a resposta nao paga de novo).
+ * Se a resposta aceita some (autor apaga, banimento, purga de spam), a duvida volta a ficar aberta.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -54,6 +57,12 @@ class QuestionAcceptedAnswerTests {
 
 	@MockitoSpyBean
 	private CoinService coins;
+
+	@Autowired
+	private BanCleanupService banCleanup;
+
+	@Autowired
+	private UserContentPurgeService purge;
 
 	private TestAuthHelper auth;
 
@@ -80,9 +89,10 @@ class QuestionAcceptedAnswerTests {
 		mockMvc.perform(get("/feed/posts/" + questionId + "/comments"))
 			.andExpect(jsonPath("$.items[0].accepted").value(true));
 		assertThat(rewards(questionId, helper.userId())).isEqualTo(1);
-		assertThat(jdbc.queryForObject(
-			"select count(*) from notifications where user_id = ? and kind = 'ANSWER_ACCEPTED'", Integer.class,
-			helper.userId())).isEqualTo(1);
+		// Same API-path form as NEW_REPLY/MENTION: the app maps "/api/feed/posts/{id}" to "/post/{id}".
+		assertThat(jdbc.queryForList(
+			"select href from notifications where user_id = ? and kind = 'ANSWER_ACCEPTED'", String.class,
+			helper.userId())).containsExactly("/api/feed/posts/" + questionId);
 	}
 
 	@Test
@@ -214,6 +224,58 @@ class QuestionAcceptedAnswerTests {
 
 		accept(asker, questionId, answerId).andExpect(status().isOk());
 		assertThat(rewards(questionId, newcomer.userId())).isZero();
+	}
+
+	@Test
+	void authorDeletingTheAcceptedAnswerReopensTheQuestion() throws Exception {
+		AuthSession asker = veteran("qaa_asker11");
+		AuthSession helper = veteran("qaa_helper11");
+		String questionId = publish(asker, "QUESTION", "Duvida cuja resposta some");
+		String answerId = comment(helper, questionId, "Resposta que o autor apaga");
+		accept(asker, questionId, answerId).andExpect(status().isOk());
+
+		mockMvc.perform(delete("/feed/posts/" + questionId + "/comments/" + answerId)
+				.header("X-Session-Token", helper.token())
+				.header("Idempotency-Key", "qaa-" + UUID.randomUUID()))
+			.andExpect(status().isOk());
+
+		assertOpen(questionId);
+		// The help reward already paid stays: the ref is per question.
+		assertThat(rewards(questionId, helper.userId())).isEqualTo(1);
+	}
+
+	@Test
+	void banCleanupRemovingTheAcceptedAnswerReopensTheQuestion() throws Exception {
+		AuthSession asker = veteran("qaa_asker12");
+		AuthSession helper = veteran("qaa_helper12");
+		String questionId = publish(asker, "QUESTION", "Duvida respondida por conta banida");
+		String answerId = comment(helper, questionId, "Resposta de quem vai ser banido");
+		accept(asker, questionId, answerId).andExpect(status().isOk());
+
+		banCleanup.cleanup("sanc_qaa12", helper.userId());
+
+		assertOpen(questionId);
+	}
+
+	@Test
+	void spamPurgeRemovingTheAcceptedAnswerReopensTheQuestion() throws Exception {
+		AuthSession asker = veteran("qaa_asker13");
+		AuthSession helper = veteran("qaa_helper13");
+		String questionId = publish(asker, "QUESTION", "Duvida respondida por spammer");
+		String answerId = comment(helper, questionId, "Resposta de quem vai ser purgado");
+		accept(asker, questionId, answerId).andExpect(status().isOk());
+
+		purge.purgeAllByAuthor("admin_qaa13", helper.userId(), "teste");
+
+		assertOpen(questionId);
+	}
+
+	private void assertOpen(String questionId) throws Exception {
+		mockMvc.perform(get("/feed/posts/" + questionId))
+			.andExpect(jsonPath("$.acceptedCommentId").doesNotExist())
+			.andExpect(jsonPath("$.resolved").value(false));
+		assertThat(jdbc.queryForObject("select count(*) from posts where id = ? and resolved_at is null",
+			Integer.class, questionId)).isEqualTo(1);
 	}
 
 	/** Account older than the new-account window, so it is eligible for the help reward. */

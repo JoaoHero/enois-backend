@@ -212,6 +212,10 @@ recompensa de ajuda (ver `docs/COIN_ECONOMY.md`).
 Erros: `400 NOT_A_QUESTION`, `400 INVALID_ANSWER_COMMENT`, `400 OWN_ANSWER`,
 `403 NOT_QUESTION_AUTHOR`, `404 POST_NOT_FOUND`.
 
+Se o comentário aceito for apagado (pelo autor, pela limpeza de banimento ou pela purga de spam), a
+dúvida volta a ficar aberta (`acceptedCommentId: null`, `resolved: false`). A recompensa já paga não
+volta.
+
 `DELETE /api/feed/posts/{postId}/accepted-answer` reabre a dúvida (mesmas regras de autoria e tipo) e
 responde `{ "postId": "post_xxx", "acceptedCommentId": null, "resolved": false }`.
 

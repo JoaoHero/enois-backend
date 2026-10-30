@@ -178,5 +178,11 @@ interface SpringDataPostJpaRepository extends JpaRepository<PostJpaEntity, Strin
 	int updateAcceptedAnswer(@Param("id") String id, @Param("commentId") String commentId,
 			@Param("resolvedAt") Instant resolvedAt);
 
+	/** A resposta aceita sumiu (apagada pelo autor ou pela moderação): a dúvida volta a ficar aberta. */
+	@org.springframework.transaction.annotation.Transactional
+	@org.springframework.data.jpa.repository.Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("UPDATE PostJpaEntity p SET p.acceptedCommentId = NULL, p.resolvedAt = NULL WHERE p.acceptedCommentId IN :commentIds")
+	int clearAcceptedAnswers(@Param("commentIds") Collection<String> commentIds);
+
 	/** Todos os posts do autor (sem filtro de status) — ban cleanup, PR #37. */
 }

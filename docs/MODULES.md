@@ -333,6 +333,10 @@ colunas, então salvar contadores nunca desfaz a escolha).
 | `accept(PostId, UserId, String commentId)` | Só o autor da dúvida; comentário ativo, da mesma dúvida e de outra pessoa. Notifica `ANSWER_ACCEPTED` e paga a recompensa de ajuda depois do commit (uma vez por dúvida; contas com menos de 7 dias não recebem) |
 | `unaccept(PostId, UserId)` | Reabre a dúvida (zera as duas colunas) |
 
+Comentário aceito apagado reabre a dúvida na mesma transação: `CommentRepository.deleteById` (autor e
+limpeza de banimento) e a purga de spam (`UserContentPurgeService`) zeram as duas colunas de quem
+apontava para ele. A recompensa já paga fica (a ref é por dúvida).
+
 `PostView` expõe `acceptedCommentId` e `resolved`; `CommentView` expõe `accepted`. O feed `ALL`
 filtrado por tipo aceita `resolved=true|false`. O limite de texto da dúvida é o padrão (1.200),
 o mesmo do post comum: pergunta técnica precisa de espaço para código.
