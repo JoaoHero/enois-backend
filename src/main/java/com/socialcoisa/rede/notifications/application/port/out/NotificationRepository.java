@@ -15,6 +15,9 @@ public interface NotificationRepository {
 	List<Notification> findByUserId(String userId, java.time.Instant before,
 			com.socialcoisa.rede.notifications.domain.NotificationContext context, int limit);
 
+	/** The unread notification of a group, if there is one. */
+	Optional<Notification> findUnreadGroup(String userId, String groupKey);
+
 	void markRead(String notificationId);
 
 	void markAllReadByUser(String userId);

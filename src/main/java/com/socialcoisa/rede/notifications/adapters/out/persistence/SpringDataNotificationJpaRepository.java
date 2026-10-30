@@ -26,6 +26,8 @@ interface SpringDataNotificationJpaRepository extends JpaRepository<Notification
 	List<NotificationJpaEntity> findByUserId(@Param("userId") String userId, @Param("before") Instant before,
 			@Param("context") String context, Pageable pageable);
 
+	java.util.Optional<NotificationJpaEntity> findFirstByUserIdAndGroupKeyAndReadFalse(String userId, String groupKey);
+
 	@Modifying
 	@Query(value = "UPDATE NotificationJpaEntity n SET n.read = true WHERE n.userId = :userId")
 	@Transactional

@@ -91,7 +91,7 @@ class NotificationContractController {
 					pro == null && p != null ? NameStyleView.from(p) : null,
 					n.title(), n.body(),
 					n.createdAt() != null ? n.createdAt().toString() : null,
-					n.isRead(), n.href(), n.ctaLabel());
+					n.isRead(), n.href(), n.ctaLabel(), n.actorCount());
 			})
 			.toList();
 		String nextCursor = page.size() == limit
@@ -132,7 +132,7 @@ class NotificationContractController {
 
 	record NotificationView(String id, String kind, String context, String actorId, String actorName,
 			String actorUsername, String actorAvatar, String actorIdentity, NameStyleView actorStyle, String title,
-			String body, String createdAt, boolean read, String href, String ctaLabel) {
+			String body, String createdAt, boolean read, String href, String ctaLabel, int actorCount) {
 	}
 
 	@PostMapping("/{notificationId}/read")
