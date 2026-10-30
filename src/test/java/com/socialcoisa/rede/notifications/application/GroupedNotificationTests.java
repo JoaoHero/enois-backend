@@ -63,7 +63,9 @@ class GroupedNotificationTests {
 			.andExpect(jsonPath("$.items.length()").value(2))
 			.andExpect(jsonPath("$.items[1].body").value("Caio e mais 2 pessoas reagiram ao seu post."))
 			.andExpect(jsonPath("$.items[1].actorCount").value(3))
-			.andExpect(jsonPath("$.items[1].actorId").value("actor_caio"));
+			.andExpect(jsonPath("$.items[1].actorId").value("actor_caio"))
+			.andExpect(jsonPath("$.items[1].href").value("/post?reacoes=1"))
+			.andExpect(jsonPath("$.items[0].href").value("/post"));
 		// One push per notification, not per reaction.
 		verify(pushSender, times(2)).sendToUser(eq(userId), any());
 
@@ -80,6 +82,7 @@ class GroupedNotificationTests {
 	private void react(String userId, String group, String actorId, String actorName) {
 		transactions.executeWithoutResult(status -> notifications.createGrouped(userId, "NEW_REACTION", group, actorId,
 			"Nova reação", actorName + " reagiu ao seu post.",
-			count -> NotificationOutboxEventHandler.othersReacted(actorName, count, "ao seu post"), "/feed", "Ver"));
+			count -> NotificationOutboxEventHandler.othersReacted(actorName, count, "ao seu post"), "/post",
+			"/post?reacoes=1", "Ver"));
 	}
 }

@@ -59,9 +59,9 @@ public class Notification {
 	 * One more person on a grouped notification: the newest actor leads, the count grows (unless the
 	 * same person acts again) and it moves back to the top of the list.
 	 */
-	public Notification joinedBy(String newActorId, String newBody, Instant now) {
+	public Notification joinedBy(String newActorId, String newBody, String newHref, Instant now) {
 		int count = newActorId.equals(actorId) ? actorCount : actorCount + 1;
-		return new Notification(id, userId, kind, newActorId, title, newBody, href, ctaLabel, false, now, groupKey,
+		return new Notification(id, userId, kind, newActorId, title, newBody, newHref, ctaLabel, false, now, groupKey,
 			count);
 	}
 
