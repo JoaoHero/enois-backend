@@ -216,7 +216,7 @@ só para contas criadas depois da V210 que ainda não concluíram nem pularam.
 
 `starter-pack` devolve até 6 comunidades (sem as que a pessoa já participa), até 6 grupos ativos
 de entrada aberta (sem os que já participa) e até 8 pessoas (contas ativas, verificadas e adultas,
-sem conexão, pedido pendente ou bloqueio em qualquer direção; nada é sugerido a quem é menor).
+sem conexão, pedido pendente ou bloqueio em qualquer direção, e sem quem a pessoa silenciou; nada é sugerido a quem é menor).
 Primeiro o que casa com os assuntos/habilidades, depois o mais popular, então a lista não fica
 vazia quando ninguém casa. `topics` usa a taxonomia de `/me/preferences` (desconhecido = `400`).
 

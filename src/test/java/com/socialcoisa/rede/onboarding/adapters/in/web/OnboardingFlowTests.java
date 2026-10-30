@@ -146,18 +146,23 @@ class OnboardingFlowTests {
 	}
 
 	@Test
-	void starterPackExcludesJoinedConnectedBlockedAndSelf() throws Exception {
+	void starterPackExcludesJoinedConnectedBlockedMutedAndSelf() throws Exception {
 		String tag = shortId();
 		String skill = "onb-pack-" + tag;
 		AuthSession viewer = auth.authenticate("onb-viewer-" + tag);
 		AuthSession match = auth.authenticate("onb-match-" + tag);
 		AuthSession pending = auth.authenticate("onb-pending-" + tag);
 		AuthSession blocker = auth.authenticate("onb-blk-" + tag);
-		for (AuthSession person : List.of(viewer, match, pending, blocker)) {
+		AuthSession muted = auth.authenticate("onb-mute-" + tag);
+		for (AuthSession person : List.of(viewer, match, pending, blocker, muted)) {
 			complete(person, Map.of("skills", List.of(skill))).andExpect(status().isOk());
 		}
 		connect(viewer, pending);
 		block(blocker, viewer);
+		mockMvc.perform(post("/network/mutes/" + muted.userId())
+				.header("X-Session-Token", viewer.token())
+				.header("Idempotency-Key", "onb-mute-" + UUID.randomUUID()))
+			.andExpect(status().is2xxSuccessful());
 
 		String joined = createCommunity(match, "Onb pack membro " + tag, "RELIGIAO");
 		String fresh = createCommunity(match, "Onb pack nova " + tag, "RELIGIAO");
@@ -174,7 +179,7 @@ class OnboardingFlowTests {
 		assertThat(ids(pack.get("communities"))).contains(fresh).doesNotContain(joined);
 		assertThat(ids(pack.get("groups"))).contains(openGroup).doesNotContain(approvalGroup);
 		assertThat(ids(pack.get("people"))).contains(match.userId())
-			.doesNotContain(viewer.userId(), pending.userId(), blocker.userId());
+			.doesNotContain(viewer.userId(), pending.userId(), blocker.userId(), muted.userId());
 		JsonNode person = pack.get("people").get(0);
 		assertThat(person.has("email")).isFalse();
 		assertThat(person.has("username")).isTrue();

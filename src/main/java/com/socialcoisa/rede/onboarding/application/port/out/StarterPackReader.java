@@ -19,7 +19,7 @@ public interface StarterPackReader {
 
 	/**
 	 * Ids of active, verified, adult accounts with no connection, pending request or block with the
-	 * user: most shared skills and liked topics first, then by reputation.
+	 * user, and not muted by the user: most shared skills and liked topics first, then by reputation.
 	 */
 	List<String> people(String userId, List<String> topics, List<String> skills, LocalDate adultBornOnOrBefore,
 			int limit);

@@ -53,6 +53,7 @@ class JdbcStarterPackAdapter implements StarterPackReader {
 		      or (uc2.receiver_user_id = :user and uc2.requester_user_id = u.id)))
 		  and not exists (select 1 from user_blocks b
 		    where (b.blocker_id = :user and b.blocked_id = u.id) or (b.blocker_id = u.id and b.blocked_id = :user))
+		  and not exists (select 1 from user_mutes mu where mu.muter_id = :user and mu.muted_id = u.id)
 		order by (select count(*) from user_skills k where k.user_id = u.id and lower(k.skill) in (:skills))
 		  + %s desc, u.reputation desc, u.created_at desc
 		limit :limit
