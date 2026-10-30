@@ -745,18 +745,37 @@ Implementa: `CreateMediaUploadUseCase`, `GetMediaAssetUseCase`, `RequestMediaDel
 
 | Função | Descrição |
 |---|---|
-| `create(String title, String date, String time, String format, String host, String cover, String createdBy)` | Cria evento |
+| `create(title, date, time, format, host, cover, streamUrl, location, recurrence, userId)` | Cria evento (avulso ou ritual recorrente) |
+| `changeRecurrence(String eventId, String recurrence, String userId)` | Liga/troca/desliga a recorrência da série (só o dono) |
+| `delete(String eventId, String userId, boolean admin)` | Apaga o evento; se for de uma série, encerra a série |
 | `attend(String eventId, String userId)` | Confirma presença |
 | `cancelAttendance(String eventId, String userId)` | Cancela presença |
-| `list(String format, int limit)` | Lista eventos com filtro de formato |
+| `list(format, before, limit, includePast, recurringOnly)` | Lista eventos com filtro de formato e de recorrência |
 | `getById(String eventId)` | Busca evento por ID |
 | `countAttendees(String eventId)` | Conta participantes |
+
+### EventRecurrenceService
+
+**Arquivo**: `src/main/java/com/socialcoisa/rede/events/application/EventRecurrenceService.java`
+
+Rituais: a ocorrência mais recente de uma série, depois de terminar, agenda a próxima uma única vez
+(`uk_events_series_date` em `(series_id, date)`) e avisa quem confirmou presença
+(`EVENT_NEXT_OCCURRENCE`). Presença não é copiada. A série para quando o dono sai da rede (conta
+excluída ou sancionada) ou o evento cai na moderação de texto. Cron por propriedade
+(`rede.events.recurrence.enabled|cron|zone`, padrão de hora em hora em `America/Sao_Paulo`).
+
+| Função | Descrição |
+|---|---|
+| `scheduledSpawn()` | Execução agendada (respeita `rede.events.recurrence.enabled`) |
+| `spawnNextOccurrences()` | Cria as próximas ocorrências; idempotente, cada série falha sozinha |
+| `nextOccurrenceDate(Event)` | Data da ocorrência seguinte (exposta como `nextOccurrenceDate`) |
 
 ### Domain Objects
 
 | Classe | Descrição |
 |---|---|
-| `Event` | Entidade: id, title, date, time, format, host, cover, createdBy |
+| `Event` | Entidade: id, title, date, time, format, host, cover, createdBy, recurrence, seriesId |
+| `EventRecurrence` | `NONE`, `WEEKLY`, `BIWEEKLY`, `MONTHLY`; calcula a próxima data (mensal ancorada na 1ª ocorrência) |
 | `EventAttendee` | Entidade: eventId, userId |
 
 ### EventContractController
@@ -770,6 +789,7 @@ Implementa: `CreateMediaUploadUseCase`, `GetMediaAssetUseCase`, `RequestMediaDel
 | `create(...)` | POST /api/events |
 | `attend(...)` | POST /api/events/{eventId}/attendees |
 | `cancel(...)` | DELETE /api/events/{eventId}/attendees |
+| `changeRecurrence(...)` | PATCH /api/events/{eventId}/recurrence |
 
 ---
 
