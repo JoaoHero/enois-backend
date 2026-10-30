@@ -11,6 +11,7 @@ import org.springframework.util.StringUtils;
 
 import com.socialcoisa.rede.events.application.port.out.EventRepository;
 import com.socialcoisa.rede.events.domain.Event;
+import com.socialcoisa.rede.events.domain.EventRecurrence;
 
 @Repository
 class EventPersistenceAdapter implements EventRepository {
@@ -40,18 +41,40 @@ class EventPersistenceAdapter implements EventRepository {
 	}
 
 	@Override
-	public List<Event> findAll(String format, String state, String cityKey, Instant before, int limit) {
+	public List<Event> findAll(String format, String state, String cityKey, Instant before, boolean recurringOnly,
+			int limit) {
 		PageRequest page = PageRequest.of(0, limit);
 		List<EventJpaEntity> entities;
 		if (state != null) {
 			entities = springData.findByPlace(state, cityKey, StringUtils.hasText(format) ? format : null, before,
-				page);
+				recurringOnly, page);
 		} else if (StringUtils.hasText(format)) {
-			entities = springData.findByFormat(format, before, page);
+			entities = springData.findByFormat(format, before, recurringOnly, page);
 		} else {
-			entities = springData.findAllBefore(before, page);
+			entities = springData.findAllBefore(before, recurringOnly, page);
 		}
 		return entities.stream().map(EventJpaEntity::toDomain).toList();
+	}
+
+	@Override
+	public List<Event> findRecurring() {
+		return springData.findByRecurrenceNot(EventRecurrence.NONE.name()).stream().map(EventJpaEntity::toDomain).toList();
+	}
+
+	@Override
+	public Optional<Event> findLatestInSeries(String seriesId) {
+		return springData.findFirstBySeriesIdOrderByCreatedAtDesc(seriesId).map(EventJpaEntity::toDomain);
+	}
+
+	@Override
+	public boolean existsInSeries(String seriesId, String date) {
+		return springData.existsBySeriesIdAndDate(seriesId, date);
+	}
+
+	@Override
+	@org.springframework.transaction.annotation.Transactional
+	public void updateSeriesRecurrence(String seriesId, EventRecurrence recurrence) {
+		springData.updateSeriesRecurrence(seriesId, recurrence.name());
 	}
 
 	@Override

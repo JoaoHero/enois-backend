@@ -20,6 +20,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import com.socialcoisa.rede.events.application.EventRecurrenceService;
+import com.socialcoisa.rede.events.application.port.out.EventRepository;
+import com.socialcoisa.rede.events.domain.Event;
 import com.socialcoisa.rede.shared.web.TestAuthHelper;
 
 import tools.jackson.databind.JsonNode;
@@ -36,10 +39,24 @@ class EventCityFilterTests {
 	@Autowired
 	private ObjectMapper objectMapper;
 
+	@Autowired
+	private EventRecurrenceService recurrence;
+
+	@Autowired
+	private EventRepository events;
+
 	private ResultActions create(TestAuthHelper.AuthSession who, String title, String format, String city,
 			String state, String key) throws Exception {
-		Map<String, Object> body = new HashMap<>(Map.of("title", title, "date",
-			LocalDate.now().plusMonths(2).toString(), "time", "19:00", "format", format, "host", "Enois"));
+		return create(who, title, format, city, state, LocalDate.now().plusMonths(2), null, key);
+	}
+
+	private ResultActions create(TestAuthHelper.AuthSession who, String title, String format, String city,
+			String state, LocalDate date, String recurrence, String key) throws Exception {
+		Map<String, Object> body = new HashMap<>(Map.of("title", title, "date", date.toString(), "time", "19:00",
+			"format", format, "host", "Enois"));
+		if (recurrence != null) {
+			body.put("recurrence", recurrence);
+		}
 		if (city != null) {
 			body.put("city", city);
 			body.put("state", state);
@@ -91,5 +108,32 @@ class EventCityFilterTests {
 		mockMvc.perform(get("/events").param("state", "ZZ"))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("INVALID_STATE"));
+	}
+
+	@Test
+	void nextOccurrenceOfARecurringMeetupKeepsTheCityAndMatchesBothFilters() throws Exception {
+		var host = new TestAuthHelper(mockMvc, objectMapper).authenticate("ecity-3");
+		LocalDate yesterday = LocalDate.now(java.time.ZoneOffset.UTC).minusDays(1);
+		String first = id(create(host, "ecity Ritual Goiania", "IN_PERSON", "Goiânia", "GO", yesterday, "WEEKLY",
+			"ecity-3a"));
+		String single = id(create(host, "ecity Avulso Goiania", "IN_PERSON", "Goiania", "GO",
+			LocalDate.now().plusMonths(1), null, "ecity-3b"));
+
+		recurrence.spawnNextOccurrences();
+
+		Event next = events.findLatestInSeries(first).orElseThrow();
+		assertThat(next.id()).isNotEqualTo(first);
+		assertThat(next.place()).isNotNull();
+		assertThat(next.place().city()).isEqualTo("Goiânia");
+		assertThat(next.place().state()).isEqualTo("GO");
+
+		String json = mockMvc.perform(get("/events").param("city", "goiania").param("state", "GO")
+				.param("recurring", "true").param("limit", "100"))
+			.andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+		List<String> found = new ArrayList<>();
+		for (JsonNode item : objectMapper.readTree(json).get("items")) {
+			found.add(item.get("id").asText());
+		}
+		assertThat(found).contains(next.id()).doesNotContain(single);
 	}
 }

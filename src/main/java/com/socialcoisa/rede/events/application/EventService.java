@@ -14,6 +14,7 @@ import org.springframework.util.StringUtils;
 import com.socialcoisa.rede.events.application.port.out.EventRepository;
 import com.socialcoisa.rede.events.domain.Event;
 import com.socialcoisa.rede.events.domain.EventAttendee;
+import com.socialcoisa.rede.events.domain.EventRecurrence;
 import com.socialcoisa.rede.shared.geo.CityState;
 import com.socialcoisa.rede.shared.web.ApiException;
 import com.socialcoisa.rede.shared.web.TextFieldLimit;
@@ -45,7 +46,7 @@ public class EventService {
 
 	@Transactional
 	public Event create(String title, String date, String time, String format, String host, String cover,
-			String streamUrl, String location, String city, String state, String userId) {
+			String streamUrl, String location, String recurrence, String city, String state, String userId) {
 		// Os mesmos tetos das colunas (`events.title varchar(255)`...): sem esta checagem o banco
 		// recusava a gravacao com "Data too long" e a pessoa recebia 409 "Operacao conflita com o
 		// estado atual dos dados" — que nao diz qual campo passou do limite.
@@ -64,8 +65,59 @@ public class EventService {
 				"Cidade e estado so valem para evento presencial ou hibrido.");
 		}
 		event.placeAt(place);
+		EventRecurrence parsed = parseRecurrence(recurrence);
+		if (parsed != EventRecurrence.NONE) {
+			requireScheduledTime(event);
+			event.changeRecurrence(parsed, id);
+		}
 		repository.save(event);
 		return event;
+	}
+
+	/**
+	 * Liga, troca ou desliga a recorrencia. So quem criou o evento decide: o ritual e dele.
+	 *
+	 * A recorrencia vale para a serie inteira — desligar em qualquer ocorrencia para a serie, e o
+	 * agendador nao cria a proxima.
+	 */
+	@Transactional
+	public Event changeRecurrence(String eventId, String recurrence, String userId) {
+		Event event = getById(eventId);
+		if (!event.createdBy().equals(userId)) {
+			throw new ApiException(403, "NOT_EVENT_OWNER", "Este evento nao e seu.");
+		}
+		EventRecurrence parsed = parseRecurrence(recurrence);
+		if (parsed != EventRecurrence.NONE) {
+			requireScheduledTime(event);
+		}
+		String seriesId = event.seriesId() != null ? event.seriesId() : (parsed == EventRecurrence.NONE ? null : event.id());
+		event.changeRecurrence(parsed, seriesId);
+		repository.save(event);
+		if (seriesId != null) {
+			repository.updateSeriesRecurrence(seriesId, parsed);
+		}
+		return event;
+	}
+
+	private static EventRecurrence parseRecurrence(String raw) {
+		if (!StringUtils.hasText(raw)) {
+			return EventRecurrence.NONE;
+		}
+		try {
+			return EventRecurrence.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+		}
+		catch (IllegalArgumentException invalid) {
+			throw new ApiException(400, "INVALID_RECURRENCE",
+				"Recorrencia invalida. Use NONE, WEEKLY, BIWEEKLY ou MONTHLY.");
+		}
+	}
+
+	/** Um ritual repete num horario fixo: sem hora legivel nao da para marcar a proxima. */
+	private static void requireScheduledTime(Event event) {
+		if (!event.hasScheduledTime()) {
+			throw new ApiException(400, "INVALID_EVENT_TIME",
+				"Evento recorrente precisa de horario no formato HH:MM.");
+		}
 	}
 
 	/**
@@ -94,6 +146,11 @@ public class EventService {
 			.orElseThrow(() -> new ApiException(404, "EVENT_NOT_FOUND", "Evento nao encontrado."));
 		if (!admin && !event.createdBy().equals(userId)) {
 			throw new ApiException(403, "NOT_EVENT_OWNER", "Este evento nao e seu.");
+		}
+		// Ocorrencia removida (pelo dono ou pela moderacao) encerra a serie: sem isto a ocorrencia
+		// anterior voltaria a ser a mais recente e recriaria a data que acabou de sair.
+		if (event.seriesId() != null) {
+			repository.updateSeriesRecurrence(event.seriesId(), EventRecurrence.NONE);
 		}
 		repository.deleteAttendees(eventId);
 		repository.deleteById(eventId);
@@ -154,7 +211,7 @@ public class EventService {
 	 * achar que acabou.
 	 */
 	public EventPage list(String format, String city, String state, java.time.Instant before, int limit,
-			boolean includePast) {
+			boolean includePast, boolean recurringOnly) {
 		// Filtro por lugar (so encontros presenciais/hibridos): `state` sozinho filtra a UF; `city`
 		// exige `state`. A cidade compara sem acento e sem caixa.
 		String uf = null;
@@ -166,7 +223,7 @@ public class EventService {
 		} else if (StringUtils.hasText(state)) {
 			uf = CityState.requireState(state);
 		}
-		List<Event> fetched = repository.findAll(format, uf, cityKey, before, limit);
+		List<Event> fetched = repository.findAll(format, uf, cityKey, before, recurringOnly, limit);
 		List<Event> visible = includePast ? fetched : fetched.stream().filter(event -> !hasEnded(event)).toList();
 		// Evento de conta banida sai da vitrine (o conteúdo dela já está sendo limpo).
 		visible = visible.stream()
