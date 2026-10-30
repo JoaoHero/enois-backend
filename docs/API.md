@@ -538,7 +538,7 @@ Contrato completo, regras e códigos de erro em [`STUDY_PAIRS.md`](STUDY_PAIRS.m
 
 | Método | Rota | Descrição | Autenticação |
 |---|---|---|---|
-| GET | `/api/conversations` | Listar conversas | Sim |
+| GET | `/api/conversations` | Listar conversas (`?context=SOCIAL\|PROFESSIONAL`, see SOCIAL_PROFESSIONAL_CONTEXTS.md) | Sim |
 | POST | `/api/conversations` | Criar conversa | Sim |
 | GET | `/api/conversations/search` | Buscar conversas | Sim |
 | GET | `/api/conversations/{conversationId}` | Detalhes da conversa | Sim |
@@ -554,7 +554,7 @@ Contrato completo, regras e códigos de erro em [`STUDY_PAIRS.md`](STUDY_PAIRS.m
 
 | Método | Rota | Descrição | Autenticação |
 |---|---|---|---|
-| GET | `/api/notifications` | Listar notificações | Sim |
+| GET | `/api/notifications` | Listar notificações (`?context=SOCIAL\|PROFESSIONAL`) | Sim |
 | POST | `/api/notifications/{notificationId}/read` | Marcar como lida | Sim |
 | POST | `/api/notifications/read-all` | Marcar todas como lidas | Sim |
 | GET | `/api/me/notification-preferences` | Preferências de push e do resumo semanal | Sim |
