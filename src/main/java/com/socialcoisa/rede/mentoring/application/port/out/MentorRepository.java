@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 
 import com.socialcoisa.rede.mentoring.domain.Mentor;
+import com.socialcoisa.rede.mentoring.domain.MentorAvailability;
 import com.socialcoisa.rede.mentoring.domain.MentorSession;
 import com.socialcoisa.rede.mentoring.domain.MentorSlot;
 
@@ -27,5 +28,13 @@ public interface MentorRepository {
 
 	void saveSession(MentorSession session);
 
+	List<MentorSession> findSessionsByMentor(String mentorId);
+
 	void delete(String mentorId);
+
+	List<MentorAvailability> findAvailabilitiesByMentor(String mentorId);
+
+	void saveAvailability(MentorAvailability availability);
+
+	void deleteAvailabilitiesByMentor(String mentorId);
 }

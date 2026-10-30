@@ -10,6 +10,7 @@ import org.springframework.util.StringUtils;
 
 import com.socialcoisa.rede.mentoring.application.port.out.MentorRepository;
 import com.socialcoisa.rede.mentoring.domain.Mentor;
+import com.socialcoisa.rede.mentoring.domain.MentorAvailability;
 import com.socialcoisa.rede.mentoring.domain.MentorSession;
 import com.socialcoisa.rede.mentoring.domain.MentorSlot;
 
@@ -19,13 +20,16 @@ class MentorPersistenceAdapter implements MentorRepository {
 	private final SpringDataMentorJpaRepository springData;
 	private final SpringDataMentorSlotJpaRepository slotRepo;
 	private final SpringDataMentorSessionJpaRepository sessionRepo;
+	private final SpringDataMentorAvailabilityJpaRepository availabilityRepo;
 
 	MentorPersistenceAdapter(SpringDataMentorJpaRepository springData,
 			SpringDataMentorSlotJpaRepository slotRepo,
-			SpringDataMentorSessionJpaRepository sessionRepo) {
+			SpringDataMentorSessionJpaRepository sessionRepo,
+			SpringDataMentorAvailabilityJpaRepository availabilityRepo) {
 		this.springData = springData;
 		this.slotRepo = slotRepo;
 		this.sessionRepo = sessionRepo;
+		this.availabilityRepo = availabilityRepo;
 	}
 
 	@Override
@@ -83,7 +87,31 @@ class MentorPersistenceAdapter implements MentorRepository {
 	}
 
 	@Override
+	public List<MentorSession> findSessionsByMentor(String mentorId) {
+		return sessionRepo.findByMentorIdOrderByCreatedAtDesc(mentorId).stream()
+			.map(MentorSessionJpaEntity::toDomain)
+			.toList();
+	}
+
+	@Override
 	public void delete(String mentorId) {
 		springData.deleteById(mentorId);
+	}
+
+	@Override
+	public List<MentorAvailability> findAvailabilitiesByMentor(String mentorId) {
+		return availabilityRepo.findByMentorIdOrderByDayOfWeekAscTimeOfDayAsc(mentorId).stream()
+			.map(MentorAvailabilityJpaEntity::toDomain)
+			.toList();
+	}
+
+	@Override
+	public void saveAvailability(MentorAvailability availability) {
+		availabilityRepo.save(MentorAvailabilityJpaEntity.fromDomain(availability));
+	}
+
+	@Override
+	public void deleteAvailabilitiesByMentor(String mentorId) {
+		availabilityRepo.deleteByMentorId(mentorId);
 	}
 }

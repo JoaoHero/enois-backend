@@ -1,7 +1,16 @@
 package com.socialcoisa.rede.mentoring.application;
 
 import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -9,12 +18,21 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.socialcoisa.rede.mentoring.application.port.out.MentorRepository;
 import com.socialcoisa.rede.mentoring.domain.Mentor;
+import com.socialcoisa.rede.mentoring.domain.MentorAvailability;
 import com.socialcoisa.rede.mentoring.domain.MentorSession;
 import com.socialcoisa.rede.mentoring.domain.MentorSlot;
 import com.socialcoisa.rede.shared.web.ApiException;
 
 @Service
 public class MentorService {
+
+	/** Os horários da agenda são escolhidos em São Paulo, que é como a tela mostra e como o mentor pensa. */
+	static final ZoneId AGENDA_ZONE = ZoneId.of("America/Sao_Paulo");
+	/** Janela em que os horários são gerados a partir das regras semanais. */
+	static final int GENERATION_DAYS = 28;
+
+	public record AvailabilityRule(int dayOfWeek, List<String> times) {
+	}
 
 	private final MentorRepository repository;
 	private final Clock clock;
@@ -148,6 +166,112 @@ public class MentorService {
 			.map(slot -> slot.startsAt().toString())
 			.findFirst()
 			.orElse(null);
+	}
+
+	/** Inscrições recebidas pelo mentor (só o dono), com o horário de cada uma. */
+	public List<MentorSession> sessionsOf(String mentorId, String userId) {
+		requireOwner(mentorId, userId);
+		return repository.findSessionsByMentor(mentorId);
+	}
+
+	public List<MentorAvailability> availabilitiesOf(String mentorId, String userId) {
+		requireOwner(mentorId, userId);
+		return repository.findAvailabilitiesByMentor(mentorId);
+	}
+
+	/**
+	 * Substitui a disponibilidade semanal do mentor e reconcilia os horários publicados: gera os
+	 * que faltam para os próximos {@link #GENERATION_DAYS} dias e retira os horários livres que não
+	 * correspondem mais a nenhuma regra. Horário já reservado nunca é tocado.
+	 */
+	@Transactional
+	public List<MentorAvailability> saveAvailability(String mentorId, String userId, List<AvailabilityRule> rules) {
+		Mentor mentor = requireOwner(mentorId, userId);
+		List<MentorAvailability> cleaned = validateRules(mentor.id(), rules);
+
+		repository.deleteAvailabilitiesByMentor(mentor.id());
+		cleaned.forEach(repository::saveAvailability);
+
+		Instant now = clock.instant();
+		Set<Instant> wanted = new HashSet<>();
+		LocalDate today = LocalDate.ofInstant(now, AGENDA_ZONE);
+		for (int day = 0; day < GENERATION_DAYS; day++) {
+			LocalDate date = today.plusDays(day);
+			int weekday = date.getDayOfWeek().getValue();
+			for (MentorAvailability rule : cleaned) {
+				if (rule.dayOfWeek() != weekday) {
+					continue;
+				}
+				Instant startsAt = date.atTime(LocalTime.parse(rule.timeOfDay())).atZone(AGENDA_ZONE).toInstant();
+				if (!startsAt.isAfter(now)) {
+					continue;
+				}
+				wanted.add(startsAt);
+			}
+		}
+
+		Set<Instant> existing = new HashSet<>();
+		for (MentorSlot slot : repository.findSlotsByMentor(mentor.id())) {
+			if (slot.startsAt() == null) {
+				continue;
+			}
+			existing.add(slot.startsAt());
+			boolean stale = slot.available() && slot.startsAt().isAfter(now) && !wanted.contains(slot.startsAt());
+			if (stale) {
+				repository.deleteSlot(slot.id());
+			}
+		}
+		for (Instant startsAt : wanted) {
+			if (existing.contains(startsAt)) {
+				continue;
+			}
+			String id = "slot_" + UUID.randomUUID().toString().replace("-", "");
+			repository.saveSlot(MentorSlot.create(id, mentor.id(), startsAt, startsAt.plusSeconds(3600)));
+		}
+		return repository.findAvailabilitiesByMentor(mentor.id());
+	}
+
+	private Mentor requireOwner(String mentorId, String userId) {
+		Mentor mentor = repository.findById(mentorId)
+			.orElseThrow(() -> new ApiException(404, "MENTOR_NOT_FOUND", "Mentor nao encontrado."));
+		if (!mentor.userId().equals(userId)) {
+			throw new ApiException(403, "FORBIDDEN", "Voce nao e o dono deste perfil de mentor.");
+		}
+		return mentor;
+	}
+
+	private List<MentorAvailability> validateRules(String mentorId, List<AvailabilityRule> rules) {
+		if (rules == null || rules.isEmpty()) {
+			return List.of();
+		}
+		List<MentorAvailability> result = new ArrayList<>();
+		Set<String> seen = new HashSet<>();
+		for (AvailabilityRule rule : rules) {
+			if (rule == null || rule.dayOfWeek() < 1 || rule.dayOfWeek() > 7) {
+				throw new ApiException(400, "INVALID_DAY_OF_WEEK", "Dia da semana deve estar entre 1 (segunda) e 7 (domingo).");
+			}
+			List<String> times = rule.times() == null ? List.of() : rule.times();
+			if (times.size() > 12) {
+				throw new ApiException(400, "TOO_MANY_TIMES", "No maximo 12 horarios por dia.");
+			}
+			for (String raw : times) {
+				String time = raw == null ? "" : raw.trim();
+				LocalTime parsed;
+				try {
+					parsed = LocalTime.parse(time.length() == 5 ? time : "");
+				} catch (DateTimeParseException e) {
+					throw new ApiException(400, "INVALID_TIME", "Horario invalido; use o formato HH:mm.");
+				}
+				String normalized = String.format("%02d:%02d", parsed.getHour(), parsed.getMinute());
+				if (!seen.add(rule.dayOfWeek() + "-" + normalized)) {
+					continue;
+				}
+				String id = "avail_" + UUID.randomUUID().toString().replace("-", "");
+				result.add(MentorAvailability.create(id, mentorId, rule.dayOfWeek(), normalized));
+			}
+		}
+		result.sort(Comparator.comparingInt(MentorAvailability::dayOfWeek).thenComparing(MentorAvailability::timeOfDay));
+		return result;
 	}
 
 }
