@@ -69,6 +69,29 @@ faíscas = base × 10.000 / cotaçãoAtualEmMicros     (mínimo 1 milésimo, pis
 desculpas e os prêmios concedidos manualmente pela administração — são valores decididos na hora,
 não emissão recorrente.
 
+## Presença diária e sequência
+
+A presença do dia (5 faíscas, escaladas) é paga na **primeira ação real do dia**, não só ao abrir a
+carteira. Contam: publicar um post (direto, no blog ou agendar), comentar, reagir a post ou
+comentário, terminar um jogo diário (vitória, derrota ou fim de partida), enviar mensagem, entrar
+numa comunidade ou grupo (inclusive pedir entrada) e abrir a carteira (`GET /carteira`). A publicação
+automática de um post agendado **não** conta: não é a pessoa presente naquele dia.
+
+- **Dia em `America/Sao_Paulo`**, pelo `Clock` injetado. Ref idempotente: `presenca:{conta}:{dia}`.
+- **Barato e à prova de falha:** `CoinService.recordPresence(userId)` roda depois do commit da ação,
+  em transação própria, e nunca lança (só registra um aviso sem dado pessoal). Se a pessoa já foi
+  contada hoje, é uma leitura por chave primária e nada mais.
+- **Sequência guardada** em `user_streaks` (V212): `current_days`, `longest_days`, `last_day` (último
+  dia coberto, ativo ou congelado) e `last_frozen_day`.
+- **Congelamento semanal:** 1 por semana ISO (segunda a domingo), sem acumular. Se faltou
+  **exatamente ontem** e a semana desse dia ainda não usou o congelamento, ele é consumido sozinho na
+  próxima ação: a sequência continua e o dia congelado não soma. Faltar uma segunda vez na mesma
+  semana, ou dois dias seguidos, zera a sequência. Tudo é aplicado de forma preguiçosa, sem job.
+- **Bônus de sequência:** com a sequência guardada em 7 dias ou mais, a presença paga também o bônus
+  (25, escalado), como antes.
+- **Quem já tinha presença:** sem backfill. Na primeira ação (ou leitura) depois do deploy, a
+  sequência é reconstruída a partir das presenças dos últimos 60 dias no ledger.
+
 ## Unidade
 
 A cotação é guardada em **micro-reais por faísca** (`brl_micros`; 1 centavo = 10.000 µ) para

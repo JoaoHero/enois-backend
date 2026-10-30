@@ -31,13 +31,16 @@ public class MessagingService {
 	private final com.socialcoisa.rede.shared.sanctions.SanctionGate sanctionGate;
 	private final com.socialcoisa.rede.network.application.port.out.ConnectionRepository connections;
 	private final com.socialcoisa.rede.shared.blocks.BlockedUsersReader blockedUsers;
+	private final com.socialcoisa.rede.coin.application.CoinService coins;
 
 	public MessagingService(MessagingRepository repository, NotificationService notificationService, Clock clock,
 			UserRateLimiter userRateLimiter, BehavioralTimingGuard behavioralTimingGuard,
 			com.socialcoisa.rede.shared.age.AgePolicyReader agePolicy, com.socialcoisa.rede.shared.age.AgeGate ageGate,
 			com.socialcoisa.rede.shared.sanctions.SanctionGate sanctionGate,
 			com.socialcoisa.rede.network.application.port.out.ConnectionRepository connections,
-			com.socialcoisa.rede.shared.blocks.BlockedUsersReader blockedUsers) {
+			com.socialcoisa.rede.shared.blocks.BlockedUsersReader blockedUsers,
+			com.socialcoisa.rede.coin.application.CoinService coins) {
+		this.coins = coins;
 		this.repository = repository;
 		this.notificationService = notificationService;
 		this.clock = clock;
@@ -214,6 +217,7 @@ public class MessagingService {
 				"Nova mensagem", preview,
 				"/api/conversations/" + conversationId, "Responder");
 		}
+		coins.recordPresence(senderId);
 		return message;
 	}
 
@@ -255,6 +259,7 @@ public class MessagingService {
 				"Nova mensagem", "Mensagem cifrada",
 				"/api/conversations/" + conversationId, "Responder");
 		}
+		coins.recordPresence(senderId);
 		return message;
 	}
 

@@ -93,6 +93,7 @@ class FeedController {
 	private final Clock clock;
 	private final com.socialcoisa.rede.media.application.port.in.ValidateMediaOwnershipUseCase mediaOwnershipValidator;
 	private final HoneypotGuard honeypots;
+	private final com.socialcoisa.rede.coin.application.CoinService coins;
 	private final com.socialcoisa.rede.feed.application.port.out.OutboxEventRepository outboxEventRepository;
 
 	FeedController(PublishPostUseCase publishPostUseCase, GetFeedUseCase getFeedUseCase, GetPostUseCase getPostUseCase,
@@ -108,7 +109,9 @@ class FeedController {
 			CursorCodec cursorCodec, BlockedUsersReader blockedUsersReader, Clock clock,
 			com.socialcoisa.rede.media.application.port.in.ValidateMediaOwnershipUseCase mediaOwnershipValidator,
 			HoneypotGuard honeypots,
-			com.socialcoisa.rede.feed.application.port.out.OutboxEventRepository outboxEventRepository) {
+			com.socialcoisa.rede.feed.application.port.out.OutboxEventRepository outboxEventRepository,
+			com.socialcoisa.rede.coin.application.CoinService coins) {
+		this.coins = coins;
 		this.publishPostUseCase = publishPostUseCase;
 		this.getFeedUseCase = getFeedUseCase;
 		this.getPostUseCase = getPostUseCase;
@@ -148,10 +151,15 @@ class FeedController {
 		// Imagem no meio do texto: todo marcador {{media:id}} precisa referenciar anexo do autor.
 		com.socialcoisa.rede.shared.text.InlineMedia.validate(request.content(), request.mediaIds());
 		String hash = idempotency.hash(request);
-		return idempotency.execute(user.id(), "POST", "/api/feed/posts", idempotencyKey, hash, () -> new CommandResponse(201,
-			publishPostUseCase.publish(new PublishPostCommand(user.id(), request.type(), request.content(),
+		return idempotency.execute(user.id(), "POST", "/api/feed/posts", idempotencyKey, hash, () -> {
+			var published = publishPostUseCase.publish(new PublishPostCommand(user.id(), request.type(), request.content(),
 				request.pageHtml(), request.articleBody(), request.tags(), request.mediaIds(), request.communityId(),
-				request.mentionedUserIds(), request.topic(), request.channelId(), Boolean.TRUE.equals(request.mediaSpoiler())))));
+				request.mentionedUserIds(), request.topic(), request.channelId(), Boolean.TRUE.equals(request.mediaSpoiler())));
+			// Presence counts here and not inside PublishPostService: the scheduler also publishes
+			// through it, and a scheduled post going live is not the person being here today.
+			coins.recordPresence(user.id().value());
+			return new CommandResponse(201, published);
+		});
 	}
 
 	@GetMapping("/feed")
@@ -519,6 +527,7 @@ class FeedController {
 					outboxEventRepository.append("CommentReacted", commentId,
 						"{\"commentId\":\"" + commentId + "\",\"postId\":\"" + postId
 						+ "\",\"authorId\":\"" + user.id().value() + "\"}");
+					coins.recordPresence(user.id().value());
 				}
 				return new CommandResponse(200, Map.of("status", added ? "REACTED" : "REMOVED"));
 			});

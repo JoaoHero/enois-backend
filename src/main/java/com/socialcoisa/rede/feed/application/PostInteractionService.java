@@ -126,6 +126,7 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 			+ "\",\"commentId\":\"" + saved.id() + "\",\"authorId\":\"" + command.authorId().value() + "\"}");
 		notifyCommentReply(parentCommentId, post, command.authorId().value());
 		notifyMentions(command.mentionedUserIds(), command.authorId().value(), post.id().value());
+		coins.recordPresence(command.authorId().value());
 		var profile = userProfileRepository.findById(command.authorId().value()).orElse(null);
 		return CommentView.from(saved,
 			profile != null ? profile.displayWithNickname() : null,
@@ -248,6 +249,7 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 				outboxEventRepository.append("PostReacted", post.id().value(), "{\"postId\":\"" + post.id().value()
 					+ "\",\"authorId\":\"" + command.userId().value() + "\"}");
 				rewardReaction(post.authorId().value(), command.userId().value());
+				coins.recordPresence(command.userId().value());
 			}
 			case REMOVED -> {
 				post.removeReaction();
