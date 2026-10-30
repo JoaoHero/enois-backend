@@ -569,7 +569,7 @@ Implementa: `ManageProfileExtensionUseCase`
 | `notifyConnectionRequest(String requesterId, String receiverId)` | Envia notificação de solicitação |
 | `acceptConnection(String userId, String requesterId)` | Aceita conexão pendente |
 | `removeConnection(String userId, String targetUserId)` | Remove/soft-delete conexão |
-| `getConnectionStatus(String userId, String targetUserId)` | Retorna status (PENDING, ACCEPTED, BLOCKED, NONE) |
+| `getConnectionState(String userId, String targetUserId)` | Retorna status (PENDING, ACCEPTED, REMOVED, BLOCKED, NONE) e `requestedByMe` (pedido pendente enviado por quem consulta) |
 | `getConnections(String userId)` | Conexões aceitas |
 | `getPendingRequests(String userId)` | Solicitações pendentes |
 | `countConnections(String userId)` | Conta conexões aceitas |
@@ -1222,6 +1222,7 @@ eventos/logs/erros. Documentação completa em [`MONITORAMENTO.md`](MONITORAMENT
 |---|---|
 | `GET /admin/monitoring/overview` | KPIs, séries por minuto, recursos, eventos recentes |
 | `GET /admin/monitoring/events` | Lista de eventos com filtros (nível, tipo, busca, **intervalo de data/hora**, paginação por cursor) |
+| `GET /admin/monitoring/users` | Contas da comunidade: total, entradas por dia (30 dias), crescimento diário e projeções |
 | `GET /admin/emails` | Log de e-mails enviados |
 
 O painel de log aceita "mostrar mais", cópia individual e cópia completa, e o modo pânico (chave de

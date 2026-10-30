@@ -46,13 +46,23 @@ public class CacheConfig {
 	private static final Duration GIF_SEARCH_TTL = Duration.ofMinutes(10);
 	private static final int GIF_SEARCH_MAX_ENTRIES = 200;
 
+	/**
+	 * Repositórios e README públicos do GitHub, por login (importação para o perfil). Poucos minutos:
+	 * o suficiente para abrir o diálogo e importar sem repetir a ida ao GitHub, curto o bastante para
+	 * o repositório recém-criado aparecer logo. O teto de entradas é de logins distintos.
+	 */
+	private static final Duration GITHUB_PROFILE_TTL = Duration.ofMinutes(3);
+	private static final int GITHUB_PROFILE_MAX_ENTRIES = 200;
+
 	@Bean
 	CacheManager cacheManager() {
 		SimpleCacheManager manager = new SimpleCacheManager();
 		manager.setCaches(List.of(cache("communityStats", COMMUNITY_STATS_TTL),
 			cache("externalJobs", EXTERNAL_JOBS_TTL),
 			cache("pagePreviewCards", PAGE_PREVIEW_CARD_TTL),
-			cache("gifSearch", GIF_SEARCH_TTL, GIF_SEARCH_MAX_ENTRIES)));
+			cache("gifSearch", GIF_SEARCH_TTL, GIF_SEARCH_MAX_ENTRIES),
+			cache("githubRepositories", GITHUB_PROFILE_TTL, GITHUB_PROFILE_MAX_ENTRIES),
+			cache("githubReadme", GITHUB_PROFILE_TTL, GITHUB_PROFILE_MAX_ENTRIES)));
 		return manager;
 	}
 

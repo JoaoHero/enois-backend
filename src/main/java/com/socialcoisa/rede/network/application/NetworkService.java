@@ -126,10 +126,19 @@ public class NetworkService {
 		connectionRepository.markRemoved(connection.id(), clock.instant());
 	}
 
-	public String getConnectionStatus(String currentUserId, String targetUserId) {
+	/**
+	 * Estado da conexão visto por quem consulta. O par é único e a busca olha os dois sentidos: sem
+	 * {@code requestedByMe}, quem recebeu o pedido e quem o enviou recebem o mesmo PENDING e a tela não
+	 * tem como oferecer "aceitar" a um e "cancelar" ao outro.
+	 */
+	public ConnectionState getConnectionState(String currentUserId, String targetUserId) {
 		return connectionRepository.findBetweenUsers(currentUserId, targetUserId)
-			.map(c -> c.status().name())
-			.orElse("NONE");
+			.map(c -> new ConnectionState(c.status().name(),
+				c.status() == ConnectionStatus.PENDING && c.requesterUserId().equals(currentUserId)))
+			.orElse(new ConnectionState("NONE", false));
+	}
+
+	public record ConnectionState(String status, boolean requestedByMe) {
 	}
 
 	public List<UserConnection> getConnections(String userId) {

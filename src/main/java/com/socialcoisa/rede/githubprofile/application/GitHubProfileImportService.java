@@ -16,7 +16,6 @@ import org.springframework.util.StringUtils;
 
 import com.socialcoisa.rede.contributions.application.port.out.GitHubIdentityRepository;
 import com.socialcoisa.rede.contributions.domain.GitHubIdentity;
-import com.socialcoisa.rede.githubprofile.application.port.out.GitHubProfileGateway;
 import com.socialcoisa.rede.githubprofile.application.port.out.GitHubProfileGateway.GitHubProfileReadme;
 import com.socialcoisa.rede.githubprofile.application.port.out.GitHubProfileGateway.GitHubUserRepository;
 import com.socialcoisa.rede.profile.application.port.out.UserProfileRepository;
@@ -36,21 +35,20 @@ import com.socialcoisa.rede.shared.web.ApiException;
 @Service
 public class GitHubProfileImportService {
 
-	private static final int MAX_PAGES = 3;
 	private static final int MAX_IMPORT = 20;
 	private static final int MAX_STACK = 10;
 	private static final int MAX_STACK_ITEM = 40;
 
-	private final GitHubProfileGateway gateway;
+	private final CachedGitHubProfileReader github;
 	private final GitHubIdentityRepository identities;
 	private final UserProfileRepository profiles;
 	private final ProjectsService projects;
 	private final MarkdownBioRenderer markdown;
 	private final Clock clock;
 
-	public GitHubProfileImportService(GitHubProfileGateway gateway, GitHubIdentityRepository identities,
+	public GitHubProfileImportService(CachedGitHubProfileReader github, GitHubIdentityRepository identities,
 			UserProfileRepository profiles, ProjectsService projects, MarkdownBioRenderer markdown, Clock clock) {
-		this.gateway = gateway;
+		this.github = github;
 		this.identities = identities;
 		this.profiles = profiles;
 		this.projects = projects;
@@ -59,12 +57,12 @@ public class GitHubProfileImportService {
 	}
 
 	public List<GitHubUserRepository> repositories(String userId) {
-		return gateway.listUserRepositories(login(userId), MAX_PAGES);
+		return github.repositories(login(userId));
 	}
 
 	public ReadmePreview readmePreview(String userId) {
 		String login = login(userId);
-		GitHubProfileReadme readme = gateway.profileReadme(login)
+		GitHubProfileReadme readme = github.profileReadme(login)
 			.orElseThrow(() -> new ApiException(404, "GITHUB_README_NOT_FOUND",
 				"Seu perfil do GitHub não tem um README público para importar."));
 		String branch = StringUtils.hasText(readme.defaultBranch()) ? readme.defaultBranch() : "main";
@@ -95,7 +93,7 @@ public class GitHubProfileImportService {
 		}
 		String login = login(userId);
 		Map<String, GitHubUserRepository> available = new LinkedHashMap<>();
-		for (GitHubUserRepository repo : gateway.listUserRepositories(login, MAX_PAGES)) {
+		for (GitHubUserRepository repo : github.repositories(login)) {
 			available.put(repo.fullName().toLowerCase(Locale.ROOT), repo);
 		}
 		List<UserProject> existing = projects.of(userId);
