@@ -144,6 +144,8 @@ Cidade e UF (`city`, `state`) são estruturadas e separadas do `location` livre,
 | GET | `/api/feed/saved` | Posts salvos | Sim |
 | POST | `/api/feed/posts/{postId}/comments/{commentId}/reactions` | Reagir a comentário | Sim |
 | GET | `/api/feed/posts/{postId}/comments/{commentId}/reactions` | Reações do comentário | Sim |
+| POST | `/api/feed/posts/{postId}/accepted-answer` | Aceitar a resposta de uma dúvida | Sim |
+| DELETE | `/api/feed/posts/{postId}/accepted-answer` | Desfazer a resposta aceita | Sim |
 
 ### POST /api/feed/posts
 
@@ -162,6 +164,14 @@ Tipos: `INSIGHT`, `ARTICLE`, `QUESTION`, `PROJECT`, `OPPORTUNITY`
 ### GET /api/feed
 
 Query params: `tab=FOR_YOU|FOLLOWING|ALL|DISCUSSIONS|PROJECTS|RECENT`, `cursor=<base64>`, `limit=<1-50>`
+
+Filtro por tipo (aba `ALL`): `type=QUESTION` (repetível). Com `resolved=true` só vêm as dúvidas com
+resposta aceita; com `resolved=false`, só as abertas; sem o parâmetro, todas. Ex.:
+`GET /api/feed?tab=ALL&type=QUESTION&resolved=false`.
+
+Todo post traz `acceptedCommentId` (string ou `null`) e `resolved` (boolean, `true` quando há
+resposta aceita). Todo comentário de `GET /api/feed/posts/{postId}/comments` traz `accepted`
+(boolean).
 
 Resposta:
 ```json
@@ -219,6 +229,33 @@ nunca passa do relógio do servidor (valor no futuro vira "agora"). Sem sessão:
   "parentCommentId": "comment_yyy" // opcional, para respostas
 }
 ```
+
+### POST /api/feed/posts/{postId}/accepted-answer
+
+Só quem publicou a dúvida (`type=QUESTION`) escolhe a resposta. Pode trocar a resposta quando quiser.
+
+```json
+{ "commentId": "comment_yyy" }
+```
+
+Resposta `200`:
+```json
+{ "postId": "post_xxx", "acceptedCommentId": "comment_yyy", "resolved": true }
+```
+
+O comentário precisa ser desta dúvida (raiz ou resposta), estar ativo e ser de outra pessoa. Quem
+respondeu recebe a notificação `ANSWER_ACCEPTED` e, na primeira resposta aceita da dúvida, a
+recompensa de ajuda (ver `docs/COIN_ECONOMY.md`).
+
+Erros: `400 NOT_A_QUESTION`, `400 INVALID_ANSWER_COMMENT`, `400 OWN_ANSWER`,
+`403 NOT_QUESTION_AUTHOR`, `404 POST_NOT_FOUND`.
+
+Se o comentário aceito for apagado (pelo autor, pela limpeza de banimento ou pela purga de spam), a
+dúvida volta a ficar aberta (`acceptedCommentId: null`, `resolved: false`). A recompensa já paga não
+volta.
+
+`DELETE /api/feed/posts/{postId}/accepted-answer` reabre a dúvida (mesmas regras de autoria e tipo) e
+responde `{ "postId": "post_xxx", "acceptedCommentId": null, "resolved": false }`.
 
 ### POST /api/feed/posts/{postId}/reactions
 

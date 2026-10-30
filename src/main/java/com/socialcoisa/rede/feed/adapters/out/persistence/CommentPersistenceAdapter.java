@@ -16,9 +16,11 @@ import com.socialcoisa.rede.feed.domain.PostId;
 class CommentPersistenceAdapter implements CommentRepository {
 
 	private final SpringDataCommentJpaRepository repository;
+	private final SpringDataPostJpaRepository posts;
 
-	CommentPersistenceAdapter(SpringDataCommentJpaRepository repository) {
+	CommentPersistenceAdapter(SpringDataCommentJpaRepository repository, SpringDataPostJpaRepository posts) {
 		this.repository = repository;
+		this.posts = posts;
 	}
 
 	@Override
@@ -33,6 +35,9 @@ class CommentPersistenceAdapter implements CommentRepository {
 
 	@Override
 	public void deleteById(String id) {
+		// Every comment deletion (author, ban cleanup) routes here, so a deleted accepted answer
+		// can never leave its question "resolved" pointing at nothing. Same transaction as the delete.
+		posts.clearAcceptedAnswers(List.of(id));
 		repository.deleteById(id);
 	}
 

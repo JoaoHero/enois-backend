@@ -320,6 +320,27 @@ Implementa: `CommentOnPostUseCase`, `GetCommentsUseCase`, `ReactToPostUseCase`, 
 | `normalizeParentComment(Comment parentComment, Post post)` | Valida parent comment |
 | `normalizeLimit(int limit)` | Normaliza limit entre 1 e 50 |
 
+### QuestionAnswerService
+
+**Arquivo**: `src/main/java/com/socialcoisa/rede/feed/application/QuestionAnswerService.java`
+
+Dúvidas (`QUESTION`) com resposta aceita. Estado em `posts.accepted_comment_id` e `posts.resolved_at`
+(V213), gravado só por `PostRepository.updateAcceptedAnswer` (o `save()` do post não toca essas
+colunas, então salvar contadores nunca desfaz a escolha).
+
+| Função | Descrição |
+|---|---|
+| `accept(PostId, UserId, String commentId)` | Só o autor da dúvida; comentário ativo, da mesma dúvida e de outra pessoa. Notifica `ANSWER_ACCEPTED` e paga a recompensa de ajuda depois do commit (uma vez por dúvida; contas com menos de 7 dias não recebem) |
+| `unaccept(PostId, UserId)` | Reabre a dúvida (zera as duas colunas) |
+
+Comentário aceito apagado reabre a dúvida na mesma transação: `CommentRepository.deleteById` (autor e
+limpeza de banimento) e a purga de spam (`UserContentPurgeService`) zeram as duas colunas de quem
+apontava para ele. A recompensa já paga fica (a ref é por dúvida).
+
+`PostView` expõe `acceptedCommentId` e `resolved`; `CommentView` expõe `accepted`. O feed `ALL`
+filtrado por tipo aceita `resolved=true|false`. O limite de texto da dúvida é o padrão (1.200),
+o mesmo do post comum: pergunta técnica precisa de espaço para código.
+
 ### FeedDistributionService
 
 **Arquivo**: `src/main/java/com/socialcoisa/rede/feed/application/FeedDistributionService.java`

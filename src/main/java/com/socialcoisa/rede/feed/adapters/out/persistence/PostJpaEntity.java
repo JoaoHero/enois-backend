@@ -86,6 +86,13 @@ class PostJpaEntity {
 	@Column(name = "repost_with_opinion", nullable = false)
 	private boolean repostWithOpinion;
 
+	/** Read-only here: written by SpringDataPostJpaRepository#updateAcceptedAnswer only. */
+	@Column(name = "accepted_comment_id", insertable = false, updatable = false)
+	private String acceptedCommentId;
+
+	@Column(name = "resolved_at", insertable = false, updatable = false)
+	private Instant resolvedAt;
+
 	@Column(name = "created_at", nullable = false)
 	private Instant createdAt;
 
@@ -162,6 +169,7 @@ class PostJpaEntity {
 		return Post.restore(new PostId(id), new UserId(authorId), type, content, pageHtml, tags, mediaIds, communityId,
 			topic, channelId, createdAt, visibility, new Counters(reactions, comments, saves, shares), status,
 			deletedAt, editedAt, expiresAt, authorIdentity, mediaSpoiler)
-			.markRepostOf(repostOf, repostOfAuthor, repostWithOpinion);
+			.markRepostOf(repostOf, repostOfAuthor, repostWithOpinion)
+			.markAcceptedAnswer(acceptedCommentId, resolvedAt);
 	}
 }

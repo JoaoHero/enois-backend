@@ -148,8 +148,8 @@ class PostPersistenceAdapter implements PostRepository, SocialPostCountReader {
 	}
 
 	@Override
-	public List<Post> findActiveByTypes(Set<PostType> types, Instant before, int limit) {
-		return repository.findByTypes(PostStatus.ACTIVE, types, before, PageRequest.of(0, limit)).stream()
+	public List<Post> findActiveByTypes(Set<PostType> types, Boolean resolved, Instant before, int limit) {
+		return repository.findByTypes(PostStatus.ACTIVE, types, resolved, before, PageRequest.of(0, limit)).stream()
 			.map(PostJpaEntity::toDomain)
 			.toList();
 	}
@@ -215,5 +215,10 @@ class PostPersistenceAdapter implements PostRepository, SocialPostCountReader {
 			PostStatus.ACTIVE, before, PageRequest.of(0, limit)).stream()
 			.map(PostJpaEntity::toDomain)
 			.toList();
+	}
+
+	@Override
+	public void updateAcceptedAnswer(PostId id, String commentId, Instant resolvedAt) {
+		repository.updateAcceptedAnswer(id.value(), commentId, resolvedAt);
 	}
 }
