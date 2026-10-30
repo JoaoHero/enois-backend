@@ -23,6 +23,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import com.socialcoisa.rede.network.application.BlockService;
+import com.socialcoisa.rede.network.application.MuteService;
 import com.socialcoisa.rede.shared.web.TestAuthHelper;
 import com.socialcoisa.rede.shared.web.TestAuthHelper.AuthSession;
 import com.socialcoisa.rede.studypairs.application.StudyPairService;
@@ -46,6 +47,9 @@ class StudyPairFlowTests {
 
 	@Autowired
 	private BlockService blocks;
+
+	@Autowired
+	private MuteService mutes;
 
 	@Autowired
 	private StudyPairService service;
@@ -223,6 +227,30 @@ class StudyPairFlowTests {
 		checkin(b, pairId, "oi").andExpect(status().isConflict());
 		me(b).andExpect(jsonPath("$.pairs.length()").value(0));
 		assertThat(notifications(b.userId(), StudyPairService.KIND_ENDED)).isZero();
+	}
+
+	@Test
+	void aMuteInEitherDirectionPreventsPairing() throws Exception {
+		AuthSession muter = auth.authenticate("sp-mute-muter");
+		AuthSession muted = auth.authenticate("sp-mute-muted");
+		mutes.mute(muter.userId(), muted.userId());
+
+		// The muter waits; the muted one asks later and must not be paired with them.
+		requestPair(muter, "goal sp-mute").andExpect(jsonPath("$.status").value("OPEN"));
+		requestPair(muted, "goal sp-mute").andExpect(jsonPath("$.status").value("OPEN"));
+	}
+
+	@Test
+	void aMuteAfterMatchEndsThePairQuietly() throws Exception {
+		AuthSession a = auth.authenticate("sp-postmute-a");
+		AuthSession b = auth.authenticate("sp-postmute-b");
+		String pairId = pair(a, b, "goal sp-postmute");
+		mutes.mute(b.userId(), a.userId());
+
+		// The muted side (a) is the one asking: the check must look both ways.
+		me(a).andExpect(jsonPath("$.pairs.length()").value(0));
+		checkin(a, pairId, "oi").andExpect(status().isConflict());
+		assertThat(notifications(a.userId(), StudyPairService.KIND_ENDED)).isZero();
 	}
 
 	@Test

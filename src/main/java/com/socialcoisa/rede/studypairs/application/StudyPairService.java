@@ -165,6 +165,9 @@ public class StudyPairService {
 			.filter(r -> verified.contains(r.userId()))
 			.filter(r -> !minors.contains(r.userId()))
 			.filter(r -> !sanctions.banned(r.userId()))
+			// hiddenIdsFor covers blocks both ways but mutes only from the muter's side: ask the
+			// candidate too, so nobody is paired with someone they muted.
+			.filter(r -> !blocks.hiddenIdsFor(r.userId()).contains(userId))
 			.filter(r -> repository.findActivePairs(r.userId()).size() < MAX_ACTIVE_PAIRS)
 			.toList();
 	}
@@ -292,11 +295,13 @@ public class StudyPairService {
 	}
 
 	/**
-	 * A block (either direction) after the match ends the pair quietly: no notification, no more
-	 * check-ins or reminders. Done here, lazily, so the network module does not depend on this one.
+	 * A block or a mute (either direction) after the match ends the pair quietly: no notification,
+	 * no more check-ins or reminders. Done here, lazily, so the network module does not depend on
+	 * this one.
 	 */
 	private boolean closedByBlock(StudyPair pair) {
-		if (!blocks.hiddenIdsFor(pair.userA()).contains(pair.userB())) {
+		if (!blocks.hiddenIdsFor(pair.userA()).contains(pair.userB())
+				&& !blocks.hiddenIdsFor(pair.userB()).contains(pair.userA())) {
 			return false;
 		}
 		repository.endPair(pair.id(), clock.instant());

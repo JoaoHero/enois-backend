@@ -14,7 +14,7 @@ sequência, ranking nem métrica pública. O módulo é `studypairs` (migração
   chave, do mais antigo para o mais novo (FIFO), e casa com o primeiro elegível. Sem candidato, o
   pedido fica `OPEN`. A reivindicação do pedido da fila é atômica
   (`update ... where status = 'OPEN'`): dois pedidos simultâneos não levam a mesma pessoa.
-- **Elegível**: não é a própria pessoa, sem bloqueio em nenhum sentido, e-mail confirmado, conta
+- **Elegível**: não é a própria pessoa, sem bloqueio nem silenciamento em nenhum sentido, e-mail confirmado, conta
   não banida, adulta, com menos de 2 pares ativos e que ainda não forma par ativo com quem pede.
 - **Limites**: até 2 pares ativos por pessoa (`STUDY_PAIR_LIMIT`).
 - **Idade (ECA Digital)**: só adultos com data de nascimento declarada. Escolhemos a opção mais
@@ -28,7 +28,9 @@ sequência, ranking nem métrica pública. O módulo é `studypairs` (migração
   caracteres (pode ser vazia). Repetir na mesma semana edita a nota. Só o primeiro check-in da
   semana notifica o par. Só os dois membros veem as notas (`403` para os demais).
 - **Encerrar**: qualquer membro encerra; o outro recebe um aviso gentil.
-- **Bloqueio depois do par**: encerra o par em silêncio (sem notificação), sem check-in nem lembrete.
+- **Bloqueio ou silenciamento depois do par** (qualquer sentido): encerra o par em silêncio (sem
+  notificação), sem check-in nem lembrete. Silenciar é tratado como bloquear aqui porque o par é
+  um canal pessoal: não faz sentido seguir fazendo check-in com quem você silenciou.
 - **Lembrete**: toda quinta às 18h (Brasília), um aviso para cada membro de par ativo que ainda não
   fez o check-in da semana. Cron em `rede.study-pairs.reminder-cron`
   (`STUDY_PAIRS_REMINDER_CRON`, `-` desliga). Idempotente no banco: antes de enviar, cada aviso é

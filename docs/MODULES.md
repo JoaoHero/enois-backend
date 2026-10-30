@@ -1317,7 +1317,7 @@ Todas são leitura pública. Documentação detalhada em [`FIGURINHAS.md`](FIGUR
 Duas pessoas com o mesmo objetivo de estudo e um check-in por semana. O pedido fica aberto até
 aparecer alguém com o mesmo objetivo normalizado (`StudyGoal.key`: minúsculo, sem acento); o mais
 antigo na fila casa primeiro. Só adultos com data de nascimento declarada e e-mail confirmado;
-bloqueio nos dois sentidos impede o par e, depois do par, o encerra em silêncio. Até 2 pares ativos
+bloqueio ou silenciamento em qualquer sentido impede o par e, depois do par, o encerra em silêncio. Até 2 pares ativos
 e 1 pedido aberto por pessoa. Lembrete semanal (quinta, 18h de Brasília) só para quem ainda não fez
 o check-in da semana, reivindicado em `study_pair_reminders` (seguro com várias réplicas).
 
