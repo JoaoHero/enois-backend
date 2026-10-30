@@ -407,8 +407,28 @@ Nota: Criar vaga requer reputação >= 300.
 | GET | `/api/events/{eventId}` | Detalhes do evento | Não (viewer opcional) |
 | POST | `/api/events/{eventId}/attendees` | Confirmar presença | Sim |
 | DELETE | `/api/events/{eventId}/attendees` | Cancelar presença | Sim |
+| PATCH | `/api/events/{eventId}/recurrence` | Ligar, trocar ou desligar a recorrência (só quem criou) | Sim |
 
 `EventView` inclui `attending: boolean` — `true` quando o requester autenticado confirmou presença naquele evento; sem sessão, sempre `false`. A listagem permanece pública; com `X-Session-Token` (ou `X-User-Id` + sessão válida) o campo reflete o viewer.
+
+### Rituais (eventos recorrentes)
+
+- `POST /api/events` aceita `recurrence`: `NONE` (padrão, quando ausente), `WEEKLY`, `BIWEEKLY` ou `MONTHLY`.
+  Valor fora da lista: `400 INVALID_RECURRENCE`. Evento recorrente precisa de horário `HH:MM`: `400 INVALID_EVENT_TIME`.
+- `PATCH /api/events/{eventId}/recurrence` com `{"recurrence": "WEEKLY"}` devolve o `EventView`. Só quem criou
+  (`403 NOT_EVENT_OWNER`). A recorrência vale para a série inteira; `NONE` encerra a série.
+- `GET /api/events?recurring=true` lista só eventos com recorrência (combina com `format`, `includePast`, `cursor`).
+- `EventView` ganha `recurrence: string` (`NONE|WEEKLY|BIWEEKLY|MONTHLY`), `seriesId: string|null` (id da primeira
+  ocorrência), `nextOccurrenceDate: string|null` (`AAAA-MM-DD`, calculada; `null` para evento avulso) e
+  `canManageRecurrence: boolean` (`true` só quando o viewer autenticado criou o evento; `false` para anônimo e
+  para os demais). O id de quem criou não é exposto.
+- De hora em hora (`rede.events.recurrence.*`, fuso `America/Sao_Paulo`), a ocorrência mais recente que já terminou
+  agenda a próxima (mesmo título, formato, host, capa, link e local; presenças **não** são copiadas) e quem confirmou
+  presença recebe a notificação `EVENT_NEXT_OCCURRENCE` com `href` `/eventos?evento={id}`. Mensal conta a partir
+  da primeira ocorrência: dia 31 cai no último dia dos meses curtos e volta ao 31 depois.
+- A série para (recorrência volta a `NONE`) quando o dono desliga, quando uma ocorrência é apagada (pelo dono ou
+  pela moderação), quando a conta do dono foi excluída ou está sancionada, ou quando o evento cai no filtro de
+  texto suspeito.
 
 ---
 

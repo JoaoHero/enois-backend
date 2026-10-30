@@ -3,6 +3,7 @@ package com.socialcoisa.rede.events.adapters.out.persistence;
 import java.time.Instant;
 
 import com.socialcoisa.rede.events.domain.Event;
+import com.socialcoisa.rede.events.domain.EventRecurrence;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -56,6 +57,12 @@ class EventJpaEntity {
 	@Column(name = "final_attendees_count")
 	private Integer finalAttendeesCount;
 
+	@Column(nullable = false, length = 16)
+	private String recurrence = EventRecurrence.NONE.name();
+
+	@Column(name = "series_id")
+	private String seriesId;
+
 	protected EventJpaEntity() {
 	}
 
@@ -75,6 +82,8 @@ class EventJpaEntity {
 		e.updatedAt = event.updatedAt();
 		e.sanitizedAt = event.sanitizedAt();
 		e.finalAttendeesCount = event.finalAttendeesCount();
+		e.recurrence = event.recurrence().name();
+		e.seriesId = event.seriesId();
 		return e;
 	}
 
@@ -84,6 +93,7 @@ class EventJpaEntity {
 		if (sanitizedAt != null) {
 			event.markSanitized(finalAttendeesCount == null ? 0 : finalAttendeesCount, sanitizedAt);
 		}
+		event.changeRecurrence(EventRecurrence.valueOf(recurrence), seriesId);
 		return event;
 	}
 
