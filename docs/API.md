@@ -338,7 +338,11 @@ resposta lista o que ficou valendo (já existia ou foi feito agora):
 | DELETE | `/api/network/connections/{targetUserId}` | Remover conexão | Sim |
 | GET | `/api/network/connections/{targetUserId}/status` | Status da conexão | Sim |
 
-Status: `PENDING`, `ACCEPTED`, `BLOCKED`, `NONE`
+Status: `PENDING`, `ACCEPTED`, `REMOVED`, `BLOCKED`, `NONE`
+
+`GET .../status` responde também `requestedByMe`: `true` quando o pedido pendente foi enviado por
+quem consulta, `false` quando foi recebido e em qualquer outro status. O `status` é o mesmo para os
+dois lados da conexão; é esse campo que diferencia "cancelar" de "aceitar".
 
 Pedir conexão a uma conta que não existe responde `404 USER_NOT_FOUND`.
 
