@@ -99,7 +99,7 @@ class NetworkContractController {
 					p != null ? p.avatar() : null,
 					p != null ? p.connectionsCount() : 0,
 					p != null ? p.followersCount() : 0,
-					true, p != null ? p.avatarFrame() : null, NameStyleView.from(p));
+					true, p != null ? p.avatarFrame() : null, NameStyleView.from(p), null);
 			})
 			.toList();
 		return new PageResponse<>(items, null);
@@ -110,18 +110,26 @@ class NetworkContractController {
 			@RequestParam(defaultValue = "4") int limit) {
 		CurrentUser currentUser = currentUserResolver.resolve(sessionToken);
 		Set<String> hidden = blockService.hiddenIdsFor(currentUser.id().value());
-		List<ConnectionSuggestion> suggestions = networkService.getSuggestions(currentUser.id().value(), limit);
-		Set<String> suggestedIds = suggestions.stream()
-			.map(ConnectionSuggestion::userId)
-			.filter(id -> !hidden.contains(id))
-			.collect(Collectors.toSet());
-		Map<String, UserProfile> profiles = userProfileRepository.findAllByIds(suggestedIds).stream()
+		List<ConnectionSuggestion> suggestions = networkService.getSuggestions(currentUser.id().value(), limit).stream()
+			.filter(suggestion -> !hidden.contains(suggestion.userId()))
+			.toList();
+		Map<String, UserProfile> profiles = userProfileRepository
+			.findAllByIds(suggestions.stream().map(ConnectionSuggestion::userId).toList())
+			.stream()
 			.collect(Collectors.toMap(UserProfile::id, Function.identity()));
-		return suggestedIds.stream()
-			.map(profiles::get)
-			.filter(p -> p != null)
-			.map(p -> new NetworkUserView(p.id(), p.username(), p.name(), p.headline(), p.avatar(),
-				p.connectionsCount(), p.followersCount(), false, p.avatarFrame(), NameStyleView.from(p)))
+		// Walks the ranked list (most mutual connections first): a Set here lost the order. A removed
+		// account is still a row in `users`, so it is left out by its anonymized username.
+		return suggestions.stream()
+			.filter(suggestion -> {
+				UserProfile p = profiles.get(suggestion.userId());
+				return p != null && p.username() != null && !p.username().startsWith(REMOVED_USERNAME_PREFIX);
+			})
+			.map(suggestion -> {
+				UserProfile p = profiles.get(suggestion.userId());
+				return new NetworkUserView(p.id(), p.username(), p.name(), p.headline(), p.avatar(),
+					p.connectionsCount(), p.followersCount(), false, p.avatarFrame(), NameStyleView.from(p),
+					suggestion.mutualConnections());
+			})
 			.toList();
 	}
 
@@ -172,7 +180,7 @@ class NetworkContractController {
 					c.createdAt() != null ? c.createdAt().toString() : "",
 					c.requesterUserId().equals(userId) ? OUTGOING : INCOMING,
 					new NetworkUserView(p.id(), p.username(), p.name(), p.headline(), p.avatar(),
-						p.connectionsCount(), p.followersCount(), false, p.avatarFrame(), NameStyleView.from(p)));
+						p.connectionsCount(), p.followersCount(), false, p.avatarFrame(), NameStyleView.from(p), null));
 			})
 			.filter(Objects::nonNull)
 			.toList();
@@ -326,8 +334,9 @@ class NetworkContractController {
 			});
 	}
 
+	/** {@code mutualConnections} is filled only for suggestions; elsewhere it is null. */
 	record NetworkUserView(String id, String username, String name, String headline, String avatar, int connections,
-			int followers, boolean connected, String avatarFrame, NameStyleView nameStyle) {
+			int followers, boolean connected, String avatarFrame, NameStyleView nameStyle, Integer mutualConnections) {
 	}
 
 	record BlockedUserView(String userId, String username, String name, String avatar, String blockedAt) {

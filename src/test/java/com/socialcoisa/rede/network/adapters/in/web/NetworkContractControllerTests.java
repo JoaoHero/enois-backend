@@ -260,6 +260,39 @@ class NetworkContractControllerTests {
 			.andExpect(jsonPath("$.pendingRequests").value(1));
 	}
 
+	@Test
+	void suggestsFriendsOfFriendsFirstWithTheMutualCount() throws Exception {
+		var me = auth.authenticate("net_sug_me_" + System.nanoTime());
+		var friend = auth.authenticate("net_sug_friend_" + System.nanoTime());
+		var otherFriend = auth.authenticate("net_sug_friend2_" + System.nanoTime());
+		var twoInCommon = auth.authenticate("net_sug_two_" + System.nanoTime());
+		var oneInCommon = auth.authenticate("net_sug_one_" + System.nanoTime());
+		connect(me, friend);
+		connect(me, otherFriend);
+		connect(twoInCommon, friend);
+		connect(twoInCommon, otherFriend);
+		connect(oneInCommon, friend);
+
+		// The shared H2 base has many other users: they must not push these two out of the list.
+		mockMvc.perform(get("/network/suggestions")
+				.header("X-Session-Token", me.token())
+				.param("limit", "2"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.length()").value(2))
+			.andExpect(jsonPath("$[0].id").value(twoInCommon.userId()))
+			.andExpect(jsonPath("$[0].mutualConnections").value(2))
+			.andExpect(jsonPath("$[1].id").value(oneInCommon.userId()))
+			.andExpect(jsonPath("$[1].mutualConnections").value(1));
+	}
+
+	private void connect(TestAuthHelper.AuthSession from, TestAuthHelper.AuthSession to) throws Exception {
+		requestConnection(from, to);
+		mockMvc.perform(put("/network/connections/{target}/accept", from.userId())
+				.header("X-Session-Token", to.token())
+				.header("Idempotency-Key", "net-acc-" + from.userId() + "-" + to.userId()))
+			.andExpect(status().isOk());
+	}
+
 	private void requestConnection(TestAuthHelper.AuthSession from, TestAuthHelper.AuthSession to) throws Exception {
 		mockMvc.perform(post("/network/connections/{target}", to.userId())
 				.header("X-Session-Token", from.token())

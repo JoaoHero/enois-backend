@@ -330,7 +330,7 @@ resposta lista o que ficou valendo (já existia ou foi feito agora):
 | Método | Rota | Descrição | Autenticação |
 |---|---|---|---|
 | GET | `/api/network/users` | Listar conexões | Sim |
-| GET | `/api/network/suggestions` | Sugestões de conexão | Sim |
+| GET | `/api/network/suggestions` | Sugestões de conexão. Amigos de amigos primeiro, ordenados por conexões em comum (`mutualConnections`); completa com outras pessoas. Pessoa bloqueada ou conta removida fica de fora | Sim |
 | GET | `/api/network/summary` | Resumo da rede | Sim |
 | GET | `/api/network/requests` | Solicitações pendentes (enviadas e recebidas, mais nova primeiro), cada uma com `direction` (`INCOMING`/`OUTGOING`) e `peer` (a pessoa do outro lado). Pessoa bloqueada ou conta removida fica de fora; o `pendingRequests` do `/summary` conta só as recebidas visíveis | Sim |
 | POST | `/api/network/connections/{targetUserId}` | Solicitar conexão | Sim |
