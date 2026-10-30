@@ -173,8 +173,14 @@ class BlogNewsletterTests {
 		assinar(blog.slug(), assinante);
 
 		String token = newsletter.unsubscribeToken(blog.id(), assinante.userId());
-		char ultimo = token.charAt(token.length() - 1);
-		String adulterado = token.substring(0, token.length() - 1) + (ultimo == 'A' ? 'B' : 'A');
+		// Adulterar o ULTIMO caractere nao serve para provar nada: o base64 URL-safe vai sem padding,
+		// entao o ultimo grupo carrega bits que o decodificador descarta — trocar 'A' por 'B' ali pode
+		// decodificar para exatamente os mesmos bytes e o token continua valido. O meio sempre cai num
+		// grupo inteiro, e este teste deixa de depender do tamanho do id gerado.
+		int meio = token.length() / 2;
+		char atual = token.charAt(meio);
+		String adulterado = token.substring(0, meio) + (atual == 'A' ? 'B' : 'A')
+				+ token.substring(meio + 1);
 
 		// RFC 8058: sem sessao e sem Origin, corpo "List-Unsubscribe=One-Click", token na URL.
 		mockMvc.perform(post("/blogs/descadastrar").queryParam("token", adulterado)
