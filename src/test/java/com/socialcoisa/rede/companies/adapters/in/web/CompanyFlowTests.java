@@ -215,6 +215,18 @@ class CompanyFlowTests {
 			.andExpect(jsonPath("$[?(@.userId == '" + owner.userId() + "')].person.username").isNotEmpty());
 	}
 
+	@Test
+	void theAddressKeepsTheLettersOfAnAccentedName() throws Exception {
+		var owner = auth("cflow_slug_owner");
+		String suffix = java.util.UUID.randomUUID().toString().substring(0, 6);
+		mockMvc.perform(post("/empresas")
+				.header("X-Session-Token", owner.token())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of("name", "Estúdio Ação " + suffix))))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.slug").value("estudio-acao-" + suffix));
+	}
+
 	private TestAuthHelper.AuthSession auth(String name) throws Exception {
 		return new TestAuthHelper(mockMvc, objectMapper).authenticate(name);
 	}

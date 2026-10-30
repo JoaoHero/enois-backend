@@ -3,6 +3,7 @@ package com.socialcoisa.rede.companies.application;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.text.Normalizer;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -216,7 +217,9 @@ public class CompanyService {
 	}
 
 	private String slugFrom(String name) {
-		return name.toLowerCase(Locale.ROOT)
+		// Accents become their letter ("Estúdio" -> "estudio"); they used to be dropped ("est-dio").
+		return Normalizer.normalize(name, Normalizer.Form.NFD).replaceAll("\\p{M}+", "")
+			.toLowerCase(Locale.ROOT)
 			.replaceAll("[^a-z0-9]+", "-")
 			.replaceAll("(^-|-$)", "");
 	}

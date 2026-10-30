@@ -474,7 +474,7 @@ carry `companySlug` (null when the job is not linked to a page).
 
 | Method | Route | Description | Auth |
 |---|---|---|---|
-| GET | `/api/empresas/diretorio?query=&sector=&limit=60` | Directory (limit 1..200) | No |
+| GET | `/api/empresas/diretorio?query=&sector=&limit=60` | Directory (limit 1..200): pages first, then names from jobs, each by open jobs + projects | No |
 | GET | `/api/empresas/setores` | Distinct sectors of active pages | No |
 | GET | `/api/empresa/{slug}` | Page with projects, jobs, stats, reviews, viewer state | No (session adds viewer state) |
 | POST / DELETE | `/api/empresas/{companyId}/follow` | Follow / unfollow (idempotent) | Yes |

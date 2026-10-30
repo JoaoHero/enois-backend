@@ -90,8 +90,9 @@ public class CompanyDirectoryService {
 			entries.addAll(byName.values());
 		}
 
-		entries.sort(Comparator.comparingLong((Entry e) -> -(e.openJobs() + e.openProjects()))
-			.thenComparing(e -> e.kind() == Kind.PAGE ? 0 : 1)
+		// Pages first (the companies that are on the network), then names from jobs; each by activity.
+		entries.sort(Comparator.comparing((Entry e) -> e.kind() == Kind.PAGE ? 0 : 1)
+			.thenComparingLong(e -> -(e.openJobs() + e.openProjects()))
 			.thenComparing(e -> e.name().toLowerCase(Locale.ROOT)));
 		return entries.subList(0, Math.min(limit, entries.size()));
 	}
