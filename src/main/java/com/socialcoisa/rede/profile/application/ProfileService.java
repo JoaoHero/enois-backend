@@ -258,6 +258,14 @@ public class ProfileService implements GetMeUseCase, GetUserProfileUseCase, Upda
 			clean(command.skills()),
 			clean(command.goals()), trim(command.availability()), portfolio, externalLinks,
 			command.openToWork(), command.isMentor(), username, trim(command.aka()), clock.instant());
+		// Cidade/UF: os dois ausentes mantem; os dois vazios limpam; so um preenchido e 400.
+		if (command.city() != null || command.state() != null) {
+			profile.updatePlace(com.socialcoisa.rede.shared.geo.CityState.of(command.city(), command.state()),
+				clock.instant());
+		}
+		if (command.showCity() != null) {
+			profile.setShowCity(command.showCity(), clock.instant());
+		}
 		// Curriculo: ausente no corpo da requisicao mantem o que ja estava; vazio limpa. Nao passa
 		// pelo `update` geral porque nao e campo de exibicao — e arquivo, e so o dono le.
 		if (command.resumeUrl() != null) {

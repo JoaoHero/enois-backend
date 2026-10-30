@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.socialcoisa.rede.profile.domain.UserProfile;
+import com.socialcoisa.rede.shared.geo.CityState;
 
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
@@ -73,6 +74,19 @@ class UserProfileJpaEntity {
 
 	@Column(length = 160)
 	private String location;
+
+	@Column(length = 80)
+	private String city;
+
+	@Column(length = 2)
+	private String state;
+
+	/** Cidade sem acento e minuscula (ver CityState.key). */
+	@Column(name = "city_key", length = 80)
+	private String cityKey;
+
+	@Column(name = "show_city", nullable = false)
+	private boolean showCity;
 
 	@Column(length = 500)
 	private String avatar;
@@ -202,6 +216,12 @@ class UserProfileJpaEntity {
 		entity.email = profile.email();
 		entity.company = profile.company();
 		entity.location = profile.location();
+		if (profile.place() != null) {
+			entity.city = profile.place().city();
+			entity.state = profile.place().state();
+			entity.cityKey = profile.place().cityKey();
+		}
+		entity.showCity = profile.showCity();
 		entity.avatar = profile.avatar();
 		entity.banner = profile.banner();
 		entity.badge = profile.badge();
@@ -265,6 +285,7 @@ class UserProfileJpaEntity {
 		profile.hydrateContributorTagColor(contributorTagColor);
 		profile.hydrateProfileCosmetics(cardTheme, nameplate, bannerItem, profileEffect);
 		profile.hydrateStatus(statusText, statusIcon);
+		profile.hydratePlace(city == null || state == null ? null : new CityState(city, state, cityKey), showCity);
 		profile.hydrateBadges(badges == null || badges.isBlank() ? List.of() : List.of(badges.split("\n")));
 		return profile;
 	}
