@@ -115,6 +115,7 @@ Resposta (signup e login):
 |---|---|---|---|
 | POST | `/api/feed/posts` | Publicar post | Sim |
 | GET | `/api/feed` | Feed principal | Sim |
+| POST | `/api/feed/seen` | Avança o marcador "Você está em dia" | Sim |
 | GET | `/api/users/{username}/posts` | Posts do usuário | Sim |
 | DELETE | `/api/feed/posts/{postId}` | Deletar post | Sim |
 | POST | `/api/feed/posts/bulk-delete` | Deletar posts em lote | Sim |
@@ -169,9 +170,33 @@ Resposta:
       "media": [...]
     }
   ],
-  "nextCursor": "base64encodedtimestamp"
+  "nextCursor": "base64encodedtimestamp",
+  "lastSeenAt": "2025-01-01T00:00:00Z"
 }
 ```
+
+`lastSeenAt` (ISO-8601 ou `null`): o marcador "Você está em dia" da pessoa **como estava antes desta
+visita**. Só vem na primeira página (sem `cursor`); páginas com `cursor` mandam `null` e o front guarda o
+valor recebido na primeira. Só vem nas abas em ordem cronológica (`ALL`, `UNSEEN`, filtros por tipo e as
+legadas); `FOR_YOU` (tópicos preferidos primeiro), `TRENDING` (por reações) e `INTERACTED` mandam sempre
+`null`, porque nelas "o primeiro post mais antigo" não marca a fronteira do que é novo. `null` na primeira página significa que a pessoa nunca marcou nada (não
+desenhe o divisor).
+
+Contrato do front: desenhe o divisor "Você está em dia" **antes do primeiro post com `createdAt` menor
+ou igual a `lastSeenAt`**, olhando os posts que a resposta trouxe (quarentena, silenciados e bloqueios já
+foram filtrados no servidor). Se nenhum post da lista carregada for tão antigo, o divisor ainda não aparece
+(ele surge quando a página com posts antigos chegar). Quando a pessoa rolar além do post mais recente,
+chame `POST /api/feed/seen` com o `createdAt` desse post (uma vez por visita basta).
+
+### POST /api/feed/seen
+
+```json
+{ "seenUntil": "2025-01-01T12:00:00Z" }
+```
+
+Responde `204` sem corpo. O marcador só anda para frente (um valor mais antigo que o atual é ignorado) e
+nunca passa do relógio do servidor (valor no futuro vira "agora"). Sem sessão: `401`. Sem `seenUntil`:
+`400 INVALID_SEEN_UNTIL`.
 
 ### POST /api/feed/posts/{postId}/comments
 

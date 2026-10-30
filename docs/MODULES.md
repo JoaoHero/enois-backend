@@ -374,6 +374,7 @@ Implementa: `CommentOnPostUseCase`, `GetCommentsUseCase`, `ReactToPostUseCase`, 
 | `IdGenerator` | `generate()` |
 | `ConnectionGraphRepository` | `findFriends`, `findFriendsOfFriends`, `findUserTags` |
 | `FeedCacheRepository` | `prepend`, `get`, `removeEverywhere` |
+| `FeedSeenMarkerRepository` | `lastSeenAt`, `advance` (marcador "Você está em dia") |
 | `AuditLogRepository` | `record` |
 | `OutboxEventRepository` | `append` |
 
@@ -402,6 +403,26 @@ Implementa: `CommentOnPostUseCase`, `GetCommentsUseCase`, `ReactToPostUseCase`, 
 | `saved(...)` | GET /api/feed/saved |
 | `reactToComment(...)` | POST /api/feed/posts/{postId}/comments/{commentId}/reactions |
 | `commentReactions(...)` | GET /api/feed/posts/{postId}/comments/{commentId}/reactions |
+
+**FeedSeenController**: `src/main/java/com/socialcoisa/rede/feed/adapters/in/web/FeedSeenController.java`
+
+| Função | Rota |
+|---|---|
+| `seen(...)` | POST /api/feed/seen (avança o marcador "Você está em dia") |
+
+### Marcador "Você está em dia"
+
+Um ponto de parada explícito no feed ("você já viu tudo o que é novo desde a última visita"), em vez de
+rolagem infinita. Uma linha por pessoa em `feed_seen_markers` (V214), lida e gravada por
+`FeedSeenMarkerRepository` (`FeedSeenMarkerJdbcAdapter`).
+
+- `GET /api/feed` sem `cursor` devolve `lastSeenAt`: o marcador **antes** desta visita (ou `null`).
+  Páginas com `cursor` devolvem `null`; o front guarda o valor da primeira página. Abas ranqueadas
+  (`FOR_YOU`, `TRENDING`, `INTERACTED`) também devolvem `null`: o divisor depende de ordem cronológica.
+- `POST /api/feed/seen {seenUntil}` é um único upsert com `greatest(...)`: o marcador nunca volta, mesmo
+  com chamadas concorrentes ou fora de ordem, e o valor é limitado ao relógio do servidor (sem futuro).
+- Front: desenhar o divisor "Você está em dia" antes do primeiro post com `createdAt <= lastSeenAt`;
+  chamar `POST /api/feed/seen` com o `createdAt` do post mais recente depois que a pessoa rolar além dele.
 
 ---
 
