@@ -78,11 +78,12 @@ class EventContractController {
 	/** Lista os eventos que ainda vao acontecer; `includePast=true` inclui o historico (com selo). */
 	@GetMapping
 	PageResponse<EventView> events(@RequestParam(required = false) String format,
+			@RequestParam(required = false) String city, @RequestParam(required = false) String state,
 			@RequestParam(required = false) String cursor, @RequestParam(defaultValue = "20") int limit,
 			@RequestParam(defaultValue = "false") boolean includePast,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
 		Instant before = cursorCodec.decode(cursor).orElse(null);
-		var page = eventService.list(format, before, limit, includePast);
+		var page = eventService.list(format, city, state, before, limit, includePast);
 		String viewer = viewerId(sessionToken);
 		List<String> ids = page.items().stream().map(Event::id).toList();
 		Set<String> attendingIds = viewer != null ? eventService.attendingEventIds(viewer, ids) : Set.of();
@@ -98,7 +99,8 @@ class EventContractController {
 		Integer finalCount = event.finalAttendeesCount();
 		int attendees = finalCount != null ? finalCount : eventService.countAttendees(event.id());
 		return new EventView(event.id(), event.title(), event.date(), event.time(), event.format(), event.host(),
-			attendees, event.cover(), event.streamUrl(), event.location(), eventService.hasEnded(event), attending);
+			attendees, event.cover(), event.streamUrl(), event.location(), eventService.hasEnded(event), attending,
+			event.place() == null ? null : event.place().city(), event.place() == null ? null : event.place().state());
 	}
 
 	@GetMapping("/{eventId}")
@@ -120,8 +122,8 @@ class EventContractController {
 		return idempotency.execute(user.id(), "POST", "/api/events", idempotencyKey, hash,
 			() -> {
 				Event e = eventService.create(request.title(), request.date(), request.time(), request.format(),
-					request.host(), request.cover(), request.streamUrl(), request.location(),
-					user.id().value());
+					request.host(), request.cover(), request.streamUrl(), request.location(), request.city(),
+					request.state(), user.id().value());
 				return new CommandResponse(201, toView(e, false));
 			});
 	}
@@ -163,11 +165,12 @@ class EventContractController {
 	}
 
 	record EventView(String id, String title, String date, String time, String format, String host, int attendees,
-			String cover, String streamUrl, String location, boolean expired, boolean attending) {
+			String cover, String streamUrl, String location, boolean expired, boolean attending, String city,
+			String state) {
 	}
 
 	record CreateEventRequest(String title, String date, String time, String format, String host, String cover,
-			String streamUrl, String location) {
+			String streamUrl, String location, String city, String state) {
 	}
 
 }

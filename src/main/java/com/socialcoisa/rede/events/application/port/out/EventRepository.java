@@ -12,7 +12,8 @@ public interface EventRepository {
 
 	Optional<Event> findById(String id);
 
-	List<Event> findAll(String format, java.time.Instant before, int limit);
+	/** `state` nulo desliga o filtro de lugar; com `state`, so eventos nao-online daquela UF/cidade. */
+	List<Event> findAll(String format, String state, String cityKey, java.time.Instant before, int limit);
 
 	void saveAttendee(EventAttendee attendee);
 

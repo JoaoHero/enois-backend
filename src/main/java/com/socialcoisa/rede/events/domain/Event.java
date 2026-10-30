@@ -2,6 +2,8 @@ package com.socialcoisa.rede.events.domain;
 
 import java.time.Instant;
 
+import com.socialcoisa.rede.shared.geo.CityState;
+
 public class Event {
 
 	private final String id;
@@ -13,6 +15,8 @@ public class Event {
 	private final String cover;
 	private final String streamUrl;
 	private final String location;
+	/** Cidade + UF estruturados do encontro presencial/hibrido; nulo = sem cidade (ou online). */
+	private CityState place;
 	private final String createdBy;
 	private final Instant createdAt;
 	private final Instant updatedAt;
@@ -149,6 +153,13 @@ public class Event {
 	public Integer finalAttendeesCount() {
 		return finalAttendeesCount;
 	}
+
+	/** Cidade/UF: o servico valida (formato presencial/hibrido); o restore hidrata do banco. */
+	public void placeAt(CityState place) {
+		this.place = place;
+	}
+
+	public CityState place() { return place; }
 
 	public void markSanitized(int attendeesCount, Instant now) {
 		this.finalAttendeesCount = attendeesCount;
