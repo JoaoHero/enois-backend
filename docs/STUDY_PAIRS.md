@@ -27,6 +27,12 @@ sequência, ranking nem métrica pública. O módulo é `studypairs` (migração
 - **Check-in**: um por pessoa por semana ISO (`2026-W44`, fuso America/Sao_Paulo), nota de até 500
   caracteres (pode ser vazia). Repetir na mesma semana edita a nota. Só o primeiro check-in da
   semana notifica o par. Só os dois membros veem as notas (`403` para os demais).
+- **Módulo desativável**: chave `STUDY_PAIRS` em `disabledModules` de `/me/preferences`
+  ("O que não quero ver"). Com o módulo desligado: pedir par responde `409 STUDY_PAIRS_DISABLED`;
+  um pedido aberto antes fica pausado (não é casado, segue `OPEN` e volta a valer ao religar; quem
+  quiser sair da fila cancela); a pessoa não recebe `STUDY_PAIR_REMINDER`. Pares ativos seguem
+  (o outro membro não é afetado). O resumo semanal por e-mail não lista nada deste módulo. O
+  mapa kind para módulo do sino fica no front: os quatro `STUDY_PAIR_*` pertencem a `STUDY_PAIRS`.
 - **Encerrar**: qualquer membro encerra; o outro recebe um aviso gentil.
 - **Bloqueio ou silenciamento depois do par** (qualquer sentido): encerra o par em silêncio (sem
   notificação), sem check-in nem lembrete. Silenciar é tratado como bloquear aqui porque o par é
@@ -65,7 +71,7 @@ Corpo `{ "goal": string, "topic": string | null }`. Resposta `201`:
 
 Erros: `400 STUDY_GOAL_REQUIRED`, `400 STUDY_GOAL_TOO_LONG`, `400 INVALID_TOPIC`,
 `403 STUDY_PAIRS_ADULTS_ONLY`, `403 BIRTH_DATE_REQUIRED`, `403 EMAIL_NOT_VERIFIED`,
-`403 ACCOUNT_RESTRICTED`, `409 STUDY_REQUEST_ALREADY_OPEN`, `409 STUDY_PAIR_LIMIT`.
+`403 ACCOUNT_RESTRICTED`, `409 STUDY_PAIRS_DISABLED`, `409 STUDY_REQUEST_ALREADY_OPEN`, `409 STUDY_PAIR_LIMIT`.
 
 ### `DELETE /study-pairs/requests/current`
 

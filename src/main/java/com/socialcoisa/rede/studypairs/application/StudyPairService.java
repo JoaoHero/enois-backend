@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import com.socialcoisa.rede.notifications.application.NotificationService;
+import com.socialcoisa.rede.preferences.application.PersonalizationService;
 import com.socialcoisa.rede.preferences.domain.ContentTaxonomy;
 import com.socialcoisa.rede.profile.application.port.out.UserProfileRepository;
 import com.socialcoisa.rede.profile.domain.UserProfile;
@@ -50,6 +51,8 @@ public class StudyPairService {
 	public static final String KIND_CHECKIN = "STUDY_PAIR_CHECKIN";
 	public static final String KIND_ENDED = "STUDY_PAIR_ENDED";
 	public static final String KIND_REMINDER = "STUDY_PAIR_REMINDER";
+	/** Key in /me/preferences disabledModules that turns this module off for a person. */
+	public static final String MODULE = "STUDY_PAIRS";
 
 	static final int MAX_ACTIVE_PAIRS = 2;
 	static final int NOTE_MAX_LENGTH = 500;
@@ -67,11 +70,12 @@ public class StudyPairService {
 	private final SanctionGate sanctionGate;
 	private final SanctionGateReader sanctions;
 	private final NotificationService notifications;
+	private final PersonalizationService personalization;
 	private final Clock clock;
 
 	public StudyPairService(StudyPairRepository repository, UserProfileRepository profiles, BlockedUsersReader blocks,
 			AgeGate ageGate, AgePolicyReader agePolicy, SanctionGate sanctionGate, SanctionGateReader sanctions,
-			NotificationService notifications, Clock clock) {
+			NotificationService notifications, PersonalizationService personalization, Clock clock) {
 		this.repository = repository;
 		this.profiles = profiles;
 		this.blocks = blocks;
@@ -80,6 +84,7 @@ public class StudyPairService {
 		this.sanctionGate = sanctionGate;
 		this.sanctions = sanctions;
 		this.notifications = notifications;
+		this.personalization = personalization;
 		this.clock = clock;
 	}
 
@@ -97,6 +102,10 @@ public class StudyPairService {
 			throw new ApiException(403, "EMAIL_NOT_VERIFIED", "Confirme seu e-mail para procurar um par de estudo.");
 		}
 		sanctionGate.requireNotRestricted(userId);
+		if (moduleDisabled(userId)) {
+			throw new ApiException(409, "STUDY_PAIRS_DISABLED",
+				"O par de estudo está desativado nas suas preferências.");
+		}
 
 		String goal = rawGoal == null ? "" : PlainText.defuse(rawGoal.trim());
 		TextFieldLimit.check("STUDY_GOAL_TOO_LONG", "objetivo", goal, StudyGoal.MAX_LENGTH);
@@ -168,6 +177,8 @@ public class StudyPairService {
 			// hiddenIdsFor covers blocks both ways but mutes only from the muter's side: ask the
 			// candidate too, so nobody is paired with someone they muted.
 			.filter(r -> !blocks.hiddenIdsFor(r.userId()).contains(userId))
+			// Turned the module off: the request is paused, not matched, until it is turned back on.
+			.filter(r -> !moduleDisabled(r.userId()))
 			.filter(r -> repository.findActivePairs(r.userId()).size() < MAX_ACTIVE_PAIRS)
 			.toList();
 	}
@@ -268,7 +279,7 @@ public class StudyPairService {
 				.collect(Collectors.toSet());
 			for (String member : List.of(pair.userA(), pair.userB())) {
 				// The claim is the idempotency key: every replica runs the cron, only one row wins.
-				if (done.contains(member) || !repository.claimReminder(pair.id(), member, week, clock.instant())) {
+				if (done.contains(member) || moduleDisabled(member) || !repository.claimReminder(pair.id(), member, week, clock.instant())) {
 					continue;
 				}
 				notifications.create(member, KIND_REMINDER, "sistema", "Como foi sua semana de estudo?",
@@ -306,6 +317,10 @@ public class StudyPairService {
 		}
 		repository.endPair(pair.id(), clock.instant());
 		return true;
+	}
+
+	private boolean moduleDisabled(String userId) {
+		return personalization.of(userId).disabledModules().contains(MODULE);
 	}
 
 	private void notifyMatched(String recipientId, UserProfile partner, String goal) {

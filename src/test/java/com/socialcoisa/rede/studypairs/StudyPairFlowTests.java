@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -254,6 +255,30 @@ class StudyPairFlowTests {
 	}
 
 	@Test
+	void disabledModuleRejectsRequestsPausesMatchingAndSilencesReminders() throws Exception {
+		AuthSession off = auth.authenticate("sp-off-a");
+		disableModule(off);
+		requestPair(off, "goal sp-off").andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("STUDY_PAIRS_DISABLED"));
+
+		// A request opened before turning the module off is paused: nobody is matched with it.
+		AuthSession waiting = auth.authenticate("sp-off-waiting");
+		AuthSession other = auth.authenticate("sp-off-other");
+		requestPair(waiting, "goal sp-off-2").andExpect(jsonPath("$.status").value("OPEN"));
+		disableModule(waiting);
+		requestPair(other, "goal sp-off-2").andExpect(jsonPath("$.status").value("OPEN"));
+
+		// An active pair keeps going, but the member who turned it off gets no reminder.
+		AuthSession a = auth.authenticate("sp-off-pair-a");
+		AuthSession b = auth.authenticate("sp-off-pair-b");
+		pair(a, b, "goal sp-off-3");
+		disableModule(a);
+		service.sendWeeklyReminders();
+		assertThat(notifications(a.userId(), StudyPairService.KIND_REMINDER)).isZero();
+		assertThat(notifications(b.userId(), StudyPairService.KIND_REMINDER)).isEqualTo(1);
+	}
+
+	@Test
 	void popularGoalsCarryNoPersonalData() throws Exception {
 		AuthSession a = auth.authenticate("sp-popular-a");
 		requestPair(a, "Goal SP-Popular").andExpect(status().isCreated());
@@ -276,6 +301,13 @@ class StudyPairFlowTests {
 	private String pair(AuthSession first, AuthSession second, String goal) throws Exception {
 		requestPair(first, goal).andExpect(jsonPath("$.status").value("OPEN"));
 		return body(requestPair(second, goal).andExpect(jsonPath("$.status").value("MATCHED"))).get("pairId").asText();
+	}
+
+	private void disableModule(AuthSession session) throws Exception {
+		mockMvc.perform(put("/me/preferences").header("X-Session-Token", session.token())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(json(Map.of("disabledModules", java.util.List.of(StudyPairService.MODULE)))))
+			.andExpect(status().isOk());
 	}
 
 	private ResultActions requestPair(AuthSession session, String goal) throws Exception {

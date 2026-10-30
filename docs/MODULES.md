@@ -1318,7 +1318,7 @@ Duas pessoas com o mesmo objetivo de estudo e um check-in por semana. O pedido f
 aparecer alguém com o mesmo objetivo normalizado (`StudyGoal.key`: minúsculo, sem acento); o mais
 antigo na fila casa primeiro. Só adultos com data de nascimento declarada e e-mail confirmado;
 bloqueio ou silenciamento em qualquer sentido impede o par e, depois do par, o encerra em silêncio. Até 2 pares ativos
-e 1 pedido aberto por pessoa. Lembrete semanal (quinta, 18h de Brasília) só para quem ainda não fez
+e 1 pedido aberto por pessoa. Desativável pela chave `STUDY_PAIRS` em `disabledModules` (pedido pausado, sem lembrete). Lembrete semanal (quinta, 18h de Brasília) só para quem ainda não fez
 o check-in da semana, reivindicado em `study_pair_reminders` (seguro com várias réplicas).
 
 | Classe | Papel |
