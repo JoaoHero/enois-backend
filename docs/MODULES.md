@@ -850,7 +850,9 @@ A ocorrência nova herda cidade/UF da anterior (o encontro segue no mesmo lugar 
 | `create(String userId, String expertise, double price)` | Registra como mentor (com `meetingUrl` opcional) |
 | `update(String mentorId, String expertise, Double price)` | Atualiza perfil de mentor |
 | `createSlot(String mentorId, Instant startsAt, Instant endsAt)` | Cria horário disponível |
-| `scheduleSession(String mentorId, String menteeId, String slotId, String message)` | Agenda sessão de mentoria |
+| `scheduleSession(String mentorId, String menteeId, String slotId, String message)` | Agenda sessão; com `sparksPrice` o valor do mentorado vai para o escrow no ato (sem saldo, a inscrição falha e o horário continua livre) |
+| `completeSession(...)` / `cancelSession(...)` | Conclusão libera o escrow (−10% de taxa); cancelamento devolve integral |
+| `settleExpiredSessions()` | Worker horário: sete dias depois do fim do horário, libera o escrow sem depender da confirmação do mentor |
 | `delete(String mentorId, String userId)` | Remove perfil de mentor |
 | `list(String expertise, int limit)` | Lista mentores, filtro por expertise |
 | `getById(String mentorId)` | Busca mentor por ID |
@@ -860,9 +862,9 @@ A ocorrência nova herda cidade/UF da anterior (o encontro segue no mesmo lugar 
 
 | Classe | Descrição |
 |---|---|
-| `Mentor` | Entidade: user, expertise, rating, sessionsCount, price, meetingUrl (sala externa https opcional) |
+| `Mentor` | Entidade: user, expertise, rating, sessionsCount, price, meetingUrl (sala externa https opcional), sparksPrice (milésimos de faísca por sessão; null = não aceita faíscas) |
 | `MentorSlot` | Entidade: mentor, startsAt, endsAt, available |
-| `MentorSession` | Entidade: mentor, mentee, slot, message, status |
+| `MentorSession` | Entidade: mentor, mentee, slot, message, status, priceSparks (valor retido no escrow) |
 | `MentorAvailability` | Regra semanal: mentorId, dayOfWeek (1=segunda..7=domingo), timeOfDay ("HH:mm") |
 | `SessionStatus` | Enum: `SCHEDULED`, `COMPLETED`, `CANCELLED` |
 
@@ -875,7 +877,7 @@ A ocorrência nova herda cidade/UF da anterior (o encontro segue no mesmo lugar 
 | `mentors(...)` | GET /api/mentors |
 | `mentor(...)` | GET /api/mentors/{mentorId} |
 | `slots(...)` | GET /api/mentors/{mentorId}/slots |
-| `create(...)` | POST /api/mentors |
+| `create(...)` | POST /api/mentors (aceita `sparksPrice` em milésimos de faísca) |
 | `update(...)` | PATCH /api/mentors/{mentorId} |
 | `delete(...)` | DELETE /api/mentors/{mentorId} |
 | `createSlot(...)` | POST /api/mentors/{mentorId}/slots |
@@ -883,6 +885,9 @@ A ocorrência nova herda cidade/UF da anterior (o encontro segue no mesmo lugar 
 | `sessions(...)` | GET /api/mentors/{mentorId}/sessions — agenda do mentor (só o dono): quem se inscreveu, horário, mensagem e status |
 | `availability(...)` | GET /api/mentors/{mentorId}/availability — regras semanais do dono (dia 1..7 + horários HH:mm) |
 | `saveAvailability(...)` | PUT /api/mentors/{mentorId}/availability — substitui as regras, gera horários por 28 dias (fuso America/Sao_Paulo, duração 60 min) e retira horários livres que saíram das regras; horário reservado nunca é tocado |
+| `mySessions(...)` | GET /api/mentors/sessions/mine — o que EU agendei: mentor, horário, valor retido, status e sala |
+| `completeSession(...)` | POST /api/mentors/{mentorId}/sessions/{sessionId}/complete — só o dono; libera o escrow para o mentor menos os 10% da plataforma |
+| `cancelSession(...)` | POST /api/mentors/{mentorId}/sessions/{sessionId}/cancel — reembolso integral; o mentorado cancela até o horário começar, o mentor até a conclusão; horário futuro volta para a agenda |
 
 ---
 

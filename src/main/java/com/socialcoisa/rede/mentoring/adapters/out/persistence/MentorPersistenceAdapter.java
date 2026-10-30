@@ -13,6 +13,7 @@ import com.socialcoisa.rede.mentoring.domain.Mentor;
 import com.socialcoisa.rede.mentoring.domain.MentorAvailability;
 import com.socialcoisa.rede.mentoring.domain.MentorSession;
 import com.socialcoisa.rede.mentoring.domain.MentorSlot;
+import com.socialcoisa.rede.mentoring.domain.SessionStatus;
 
 @Repository
 class MentorPersistenceAdapter implements MentorRepository {
@@ -89,6 +90,25 @@ class MentorPersistenceAdapter implements MentorRepository {
 	@Override
 	public List<MentorSession> findSessionsByMentor(String mentorId) {
 		return sessionRepo.findByMentorIdOrderByCreatedAtDesc(mentorId).stream()
+			.map(MentorSessionJpaEntity::toDomain)
+			.toList();
+	}
+
+	@Override
+	public List<MentorSession> findSessionsByMentee(String menteeId) {
+		return sessionRepo.findByMenteeIdOrderByCreatedAtDesc(menteeId).stream()
+			.map(MentorSessionJpaEntity::toDomain)
+			.toList();
+	}
+
+	@Override
+	public Optional<MentorSession> findSessionById(String sessionId) {
+		return sessionRepo.findById(sessionId).map(MentorSessionJpaEntity::toDomain);
+	}
+
+	@Override
+	public List<MentorSession> findScheduledPaidSessions() {
+		return sessionRepo.findByStatusAndPriceSparksIsNotNull(SessionStatus.SCHEDULED).stream()
 			.map(MentorSessionJpaEntity::toDomain)
 			.toList();
 	}
