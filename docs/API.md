@@ -332,7 +332,7 @@ resposta lista o que ficou valendo (já existia ou foi feito agora):
 | GET | `/api/network/users` | Listar conexões | Sim |
 | GET | `/api/network/suggestions` | Sugestões de conexão | Sim |
 | GET | `/api/network/summary` | Resumo da rede | Sim |
-| GET | `/api/network/requests` | Solicitações pendentes | Sim |
+| GET | `/api/network/requests` | Solicitações pendentes (enviadas e recebidas, mais nova primeiro), cada uma com `direction` (`INCOMING`/`OUTGOING`) e `peer` (a pessoa do outro lado). Pessoa bloqueada ou conta removida fica de fora; o `pendingRequests` do `/summary` conta só as recebidas visíveis | Sim |
 | POST | `/api/network/connections/{targetUserId}` | Solicitar conexão | Sim |
 | PUT | `/api/network/connections/{targetUserId}/accept` | Aceitar conexão | Sim |
 | DELETE | `/api/network/connections/{targetUserId}` | Remover conexão | Sim |
