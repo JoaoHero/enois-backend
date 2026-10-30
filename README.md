@@ -282,7 +282,7 @@ e o endpoint exige sessão — anônimo não gasta a cota.
 | ~~0~~ | ~~Trust policy do front~~ — **resolvido em 18/10 pelo raposo**: os dois repositórios deployam automaticamente no push da `main` | — | — |
 | 1 | Certificado (ACM) + DNS de `paginas.enois.ia.br` | ACM us-east-1 + DNS do `ia.br` | player dentro das páginas publicadas |
 | 2 | Rotacionar a senha do banco (a antiga está no histórico do Git) | MariaDB + `git filter-repo` | segurança |
-| 3 | `REDE_GIFS_TENOR_KEY` e `REDE_GIFS_GIPHY_KEY` | secrets do Deployment | busca externa de GIF (sem elas, só os GIFs da comunidade) |
+| ~~3~~ | ~~`REDE_GIFS_TENOR_KEY` e `REDE_GIFS_GIPHY_KEY`~~ — **resolvido em 30/10**: a chave GIPHY existe como secret e o workflow de deploy a injeta nos dois ambientes (busca externa de GIF respondendo em produção, verificada por sonda) | — | — |
 | 4 | `REDE_SECURITY_ENCRYPTION_KEY` (base64 de 32 bytes) | secrets do Deployment | 2FA (a seção fica escondida sem ela) |
 | 5 | `dump_rede.sql` no histórico do Git (dados pessoais reais) | `git filter-repo` + trocar as senhas dos afetados | LGPD |
 | 6 | Sanitizar usuários e posts de teste em produção | precisa de acesso ao banco ou de um endpoint admin | — |
