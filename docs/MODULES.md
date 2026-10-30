@@ -781,7 +781,7 @@ Implementa: `CreateMediaUploadUseCase`, `GetMediaAssetUseCase`, `RequestMediaDel
 
 | Função | Descrição |
 |---|---|
-| `create(String userId, String expertise, double price)` | Registra como mentor |
+| `create(String userId, String expertise, double price)` | Registra como mentor (com `meetingUrl` opcional) |
 | `update(String mentorId, String expertise, Double price)` | Atualiza perfil de mentor |
 | `createSlot(String mentorId, Instant startsAt, Instant endsAt)` | Cria horário disponível |
 | `scheduleSession(String mentorId, String menteeId, String slotId, String message)` | Agenda sessão de mentoria |
@@ -794,7 +794,7 @@ Implementa: `CreateMediaUploadUseCase`, `GetMediaAssetUseCase`, `RequestMediaDel
 
 | Classe | Descrição |
 |---|---|
-| `Mentor` | Entidade: user, expertise, rating, sessionsCount, price |
+| `Mentor` | Entidade: user, expertise, rating, sessionsCount, price, meetingUrl (sala externa https opcional) |
 | `MentorSlot` | Entidade: mentor, startsAt, endsAt, available |
 | `MentorSession` | Entidade: mentor, mentee, slot, message, status |
 | `MentorAvailability` | Regra semanal: mentorId, dayOfWeek (1=segunda..7=domingo), timeOfDay ("HH:mm") |

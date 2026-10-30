@@ -43,17 +43,18 @@ public class MentorService {
 	}
 
 	@Transactional
-	public Mentor create(String userId, List<String> expertise, String price) {
-		return create(userId, expertise, price, null);
+	public Mentor create(String userId, List<String> expertise, String price, String banner) {
+		return create(userId, expertise, price, banner, null);
 	}
 
 	@Transactional
-	public Mentor create(String userId, List<String> expertise, String price, String banner) {
+	public Mentor create(String userId, List<String> expertise, String price, String banner, String meetingUrl) {
 		if (repository.findByUserId(userId).isPresent()) {
 			throw new ApiException(409, "ALREADY_MENTOR", "Voce ja esta cadastrado como mentor.");
 		}
+		String cleanUrl = sanitizeMeetingUrl(meetingUrl);
 		String id = "mentor_" + UUID.randomUUID().toString().replace("-", "");
-		Mentor mentor = Mentor.create(id, userId, expertise, price, banner, clock.instant());
+		Mentor mentor = Mentor.create(id, userId, expertise, price, banner, cleanUrl, clock.instant());
 		repository.save(mentor);
 		return mentor;
 	}
@@ -65,14 +66,28 @@ public class MentorService {
 
 	@Transactional
 	public Mentor update(String mentorId, List<String> expertise, String price, String banner, String userId) {
-		Mentor mentor = repository.findById(mentorId)
-			.orElseThrow(() -> new ApiException(404, "MENTOR_NOT_FOUND", "Mentor nao encontrado."));
-		if (!mentor.userId().equals(userId)) {
-			throw new ApiException(403, "FORBIDDEN", "Voce nao e o dono deste perfil de mentor.");
-		}
-		Mentor updated = mentor.update(expertise, price, banner, clock.instant());
+		return update(mentorId, expertise, price, banner, null, userId);
+	}
+
+	@Transactional
+	public Mentor update(String mentorId, List<String> expertise, String price, String banner, String meetingUrl,
+			String userId) {
+		Mentor mentor = requireOwner(mentorId, userId);
+		Mentor updated = mentor.update(expertise, price, banner, sanitizeMeetingUrl(meetingUrl), clock.instant());
 		repository.save(updated);
 		return updated;
+	}
+
+	/** Sala externa (Meet/Jitsi...): opcional; se vier, tem que ser um link https de ate 500. */
+	private String sanitizeMeetingUrl(String raw) {
+		if (raw == null || raw.isBlank()) {
+			return null;
+		}
+		String url = raw.trim();
+		if (!url.startsWith("https://") || url.length() > 500) {
+			throw new ApiException(400, "INVALID_MEETING_URL", "Informe um link https valido de ate 500 caracteres.");
+		}
+		return url;
 	}
 
 	@Transactional

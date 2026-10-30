@@ -60,7 +60,7 @@ class MentoringContractController {
 		List<Mentor> mentors = mentorService.list(expertise, before, limit);
 		var items = mentors.stream()
 			.map(m -> new MentorView(m.id(), m.userId(), m.expertise(), m.rating(), m.sessionsCount(), m.price(),
-				m.banner(), mentorService.nextAvailableSlot(m.id())))
+				m.banner(), m.meetingUrl(), mentorService.nextAvailableSlot(m.id())))
 			.toList();
 		String nextCursor = mentors.size() == limit
 			? cursorCodec.encode(mentors.get(mentors.size() - 1).createdAt()) : null;
@@ -71,7 +71,7 @@ class MentoringContractController {
 	MentorView mentor(@PathVariable String mentorId) {
 		Mentor m = mentorService.getById(mentorId);
 		return new MentorView(m.id(), m.userId(), m.expertise(), m.rating(), m.sessionsCount(), m.price(),
-			m.banner(), mentorService.nextAvailableSlot(m.id()));
+			m.banner(), m.meetingUrl(), mentorService.nextAvailableSlot(m.id()));
 	}
 
 	@GetMapping("/{mentorId}/slots")
@@ -95,9 +95,9 @@ class MentoringContractController {
 		return idempotency.execute(user.id(), "POST", "/api/mentors", idempotencyKey, hash,
 			() -> {
 				Mentor m = mentorService.create(user.id().value(), request.expertise(), request.price(),
-					request.banner());
+					request.banner(), request.meetingUrl());
 				return new CommandResponse(201, new MentorView(m.id(), m.userId(), m.expertise(), m.rating(),
-					m.sessionsCount(), m.price(), m.banner(), mentorService.nextAvailableSlot(m.id())));
+					m.sessionsCount(), m.price(), m.banner(), m.meetingUrl(), mentorService.nextAvailableSlot(m.id())));
 			});
 	}
 
@@ -110,9 +110,9 @@ class MentoringContractController {
 		return idempotency.execute(user.id(), "PATCH", "/api/mentors/{mentorId}", idempotencyKey, hash,
 			() -> {
 				Mentor m = mentorService.update(mentorId, request.expertise(), request.price(), request.banner(),
-					user.id().value());
+					request.meetingUrl(), user.id().value());
 				return new CommandResponse(200, new MentorView(m.id(), m.userId(), m.expertise(), m.rating(),
-					m.sessionsCount(), m.price(), m.banner(), mentorService.nextAvailableSlot(m.id())));
+					m.sessionsCount(), m.price(), m.banner(), m.meetingUrl(), mentorService.nextAvailableSlot(m.id())));
 			});
 	}
 
@@ -161,7 +161,7 @@ class MentoringContractController {
 	}
 
 	record MentorView(String id, String userId, List<String> expertise, double rating, int sessions, String price,
-			String banner, String nextSlot) {
+			String banner, String meetingUrl, String nextSlot) {
 	}
 
 	/** Inscrições recebidas (agenda do mentor): quem marcou, quando e o recado. Só o dono. */
@@ -260,7 +260,7 @@ class MentoringContractController {
 	record MentorSessionRequest(String slotId, String message) {
 	}
 
-	record CreateMentorRequest(List<String> expertise, String price, String banner) {
+	record CreateMentorRequest(List<String> expertise, String price, String banner, String meetingUrl) {
 	}
 
 	record CreateSlotRequest(Instant startsAt, Instant endsAt) {

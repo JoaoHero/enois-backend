@@ -2,6 +2,7 @@ package com.socialcoisa.rede.mentoring.adapters.in.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -124,6 +125,53 @@ class MentorAgendaTests {
 		putAvailability(owner, mentorId, List.of(Map.of("dayOfWeek", 1, "times", List.of("25:00"))))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("INVALID_TIME"));
+	}
+
+	@Test
+	void mentorPublishesExternalMeetingRoomForMentees() throws Exception {
+		var owner = new TestAuthHelper(mockMvc, objectMapper).authenticate("mentor_meeting_owner");
+
+		// Link https no cadastro do mentor.
+		MvcResult created = mockMvc.perform(post("/mentors")
+				.header("X-Session-Token", owner.token())
+				.header("Idempotency-Key", "mentor-create-" + UUID.randomUUID())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of(
+					"expertise", List.of("Java"),
+					"price", "Gratuito",
+					"meetingUrl", "https://meet.google.com/abc-defg-hij"))))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.meetingUrl").value("https://meet.google.com/abc-defg-hij"))
+			.andReturn();
+		String mentorId = objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asText();
+
+		// Quem quer agendar vê a sala; link não-https é recusado.
+		mockMvc.perform(get("/mentors/" + mentorId))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.meetingUrl").value("https://meet.google.com/abc-defg-hij"));
+
+		mockMvc.perform(patch("/mentors/" + mentorId)
+				.header("X-Session-Token", owner.token())
+				.header("Idempotency-Key", "mentor-update-" + UUID.randomUUID())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of(
+					"expertise", List.of("Java"),
+					"price", "Gratuito",
+					"meetingUrl", "http://sala.insegura.example/x"))))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVALID_MEETING_URL"));
+
+		// Remover o link também é permitido (string vazia).
+		mockMvc.perform(patch("/mentors/" + mentorId)
+				.header("X-Session-Token", owner.token())
+				.header("Idempotency-Key", "mentor-update-" + UUID.randomUUID())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of(
+					"expertise", List.of("Java"),
+					"price", "Gratuito",
+					"meetingUrl", ""))))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.meetingUrl").doesNotExist());
 	}
 
 	private org.springframework.test.web.servlet.ResultActions putAvailability(TestAuthHelper.AuthSession owner,
