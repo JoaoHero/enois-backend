@@ -103,9 +103,22 @@ Resposta (signup e login):
   "openToWork": true,
   "skills": ["Java", "Spring"],
   "goals": ["Aprender Kotlin"],
-  "externalLinks": ["https://linkedin.com/in/..."]
+  "externalLinks": ["https://linkedin.com/in/..."],
+  "city": "Belo Horizonte",
+  "state": "MG",
+  "showCity": false
 }
 ```
+
+Cidade e UF (`city`, `state`) são estruturadas e separadas do `location` livre, que continua. Regras:
+
+- Os dois juntos ou nenhum: só um preenchido devolve `400 CITY_STATE_INCOMPLETE`. Os dois ausentes
+  mantêm o valor atual; os dois como `""` limpam.
+- `state` é a sigla de uma das 27 UFs (maiúscula ou minúscula): fora disso, `400 INVALID_STATE`.
+  `city` vem aparada, até 80 caracteres (`400 CITY_TOO_LONG`).
+- Privacidade: `showCity` nasce `false`. `GET /api/me` sempre devolve `city`, `state` e `showCity`;
+  o perfil público (`/api/users/{username}`, busca, ranking) só devolve `city`/`state` quando
+  `showCity` é `true` (senão os campos ficam ausentes do JSON).
 
 ---
 
@@ -265,6 +278,20 @@ Resposta:
 | DELETE | `/api/communities/{communityId}/members` | Sair da comunidade | Sim |
 | GET | `/api/communities/{communityId}/members` | Listar membros | Sim |
 | GET | `/api/communities/{communityId}/feed` | Feed da comunidade | Sim |
+| GET | `/api/communities/local` | Comunidades perto de mim (cidade/UF do perfil) | Sim (sessão obrigatória) |
+
+### Comunidades por cidade
+
+`POST` e `PATCH /api/communities` aceitam `city` e `state` opcionais, com as mesmas regras do
+perfil (os dois ou nenhum, UF válida, `""` nos dois limpa no PATCH, ausentes mantêm). O
+`CommunityView` devolve `city` e `state` (ausentes quando a comunidade não tem lugar).
+
+- `GET /api/communities?city=<cidade>&state=<UF>`: filtra pela cidade sem acento e sem caixa
+  ("sao paulo" acha "São Paulo"). `state` sozinho filtra a UF; `city` sem `state` é
+  `400 CITY_STATE_INCOMPLETE`. Combina com `topic`, `q` e `cursor`.
+- `GET /api/communities/local?limit=20` (máx. 50): usa a cidade/UF do **próprio** perfil. Vêm as
+  comunidades da mesma cidade primeiro, depois as do resto do estado; dentro de cada grupo, por
+  número de membros (desc). Perfil sem cidade devolve `{"items": [], "nextCursor": null}`.
 
 ---
 
@@ -294,6 +321,11 @@ Nota: Criar vaga requer reputação >= 300.
 | GET | `/api/events/{eventId}` | Detalhes do evento | Não (viewer opcional) |
 | POST | `/api/events/{eventId}/attendees` | Confirmar presença | Sim |
 | DELETE | `/api/events/{eventId}/attendees` | Cancelar presença | Sim |
+
+`POST /api/events` aceita `city` e `state` opcionais (mesmas regras do perfil). Evento `ONLINE` com
+cidade é `400 EVENT_CITY_NOT_IN_PERSON`. `GET /api/events?city=<cidade>&state=<UF>` lista só
+encontros não online (`IN_PERSON`, `HYBRID`) daquele lugar, com a cidade comparada sem acento;
+`state` sozinho filtra a UF. O `EventView` devolve `city` e `state`.
 
 `EventView` inclui `attending: boolean` — `true` quando o requester autenticado confirmou presença naquele evento; sem sessão, sempre `false`. A listagem permanece pública; com `X-Session-Token` (ou `X-User-Id` + sessão válida) o campo reflete o viewer.
 

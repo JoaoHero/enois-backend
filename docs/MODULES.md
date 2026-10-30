@@ -421,7 +421,7 @@ Implementa: `GetMeUseCase`, `GetUserProfileUseCase`, `UpdateProfileUseCase`
 | `populateCounts(UserProfile profile)` | Calcula e seta pontuação de reputação |
 | `search(String query)` | Busca perfis |
 | `getRanking(int limit)` | Top usuários por reputação |
-| `update(UpdateProfileCommand cmd)` | Atualiza campos do perfil |
+| `update(UpdateProfileCommand cmd)` | Atualiza campos do perfil, incluindo cidade/UF (`CityState`, os dois ou nenhum) e `showCity` (cidade no perfil público só por opção, padrão desligado) |
 
 ### ProfileExtensionService
 
@@ -656,11 +656,12 @@ Implementa: `CreateMediaUploadUseCase`, `GetMediaAssetUseCase`, `RequestMediaDel
 
 | Função | Descrição |
 |---|---|
-| `create(String name, String description, String topic, String cover, String createdBy)` | Cria comunidade com criador como ADMIN |
-| `update(String communityId, String name, String description, String topic, String cover, String userId)` | Atualiza comunidade (apenas ADMIN) |
+| `create(name, description, topic, cover, avatar, city, state, userId)` | Cria comunidade com criador como ADMIN; cidade/UF opcionais (os dois ou nenhum) |
+| `update(communityId, name, description, topic, cover, avatar, bannerHtml, city, state, userId)` | Atualiza comunidade (apenas o dono); cidade/UF ausentes mantêm, vazias limpam |
 | `join(String communityId, String userId)` | Usuário entra na comunidade como MEMBER |
 | `leave(String communityId, String userId)` | Usuário sai da comunidade; se ADMIN, transfere ou deleta |
-| `list(String topic, int limit)` | Lista comunidades, opcional filtro por tópico |
+| `list(topic, query, city, state, before, limit)` | Lista comunidades; filtros por tópico, texto e lugar (cidade sem acento via `city_key`) |
+| `listLocal(CityState viewerPlace, int limit)` | Comunidades da UF do perfil: mesma cidade primeiro, depois o estado, por membros; vazio sem cidade |
 | `getById(String communityId)` | Busca comunidade por ID |
 | `isMember(String communityId, String userId)` | Verifica se é membro |
 | `countMembers(String communityId)` | Conta membros |
@@ -676,7 +677,7 @@ Implementa: `CreateMediaUploadUseCase`, `GetMediaAssetUseCase`, `RequestMediaDel
 
 | Classe | Descrição |
 |---|---|
-| `Community` | Entidade: id, name, description, topic, cover, avatar, createdBy |
+| `Community` | Entidade: id, name, description, topic, cover, avatar, bannerHtml, place (`CityState`, opcional), createdBy |
 | `CommunityMember` | Entidade: communityId, userId, role |
 | `MemberRole` | Enum: `ADMIN`, `MODERATOR`, `MEMBER` |
 
@@ -686,7 +687,8 @@ Implementa: `CreateMediaUploadUseCase`, `GetMediaAssetUseCase`, `RequestMediaDel
 
 | Função | Rota |
 |---|---|
-| `communities(...)` | GET /api/communities |
+| `communities(...)` | GET /api/communities (`topic`, `q`, `city`, `state`, `cursor`) |
+| `local(...)` | GET /api/communities/local (sessão) |
 | `community(...)` | GET /api/communities/{communityId} |
 | `create(...)` | POST /api/communities |
 | `update(...)` | PATCH /api/communities/{communityId} |
@@ -745,10 +747,10 @@ Implementa: `CreateMediaUploadUseCase`, `GetMediaAssetUseCase`, `RequestMediaDel
 
 | Função | Descrição |
 |---|---|
-| `create(String title, String date, String time, String format, String host, String cover, String createdBy)` | Cria evento |
+| `create(title, date, time, format, host, cover, streamUrl, location, city, state, userId)` | Cria evento; cidade/UF opcionais, recusadas em evento `ONLINE` |
 | `attend(String eventId, String userId)` | Confirma presença |
 | `cancelAttendance(String eventId, String userId)` | Cancela presença |
-| `list(String format, int limit)` | Lista eventos com filtro de formato |
+| `list(format, city, state, before, limit, includePast)` | Lista eventos; com `state` (e `city`) só os não online daquele lugar |
 | `getById(String eventId)` | Busca evento por ID |
 | `countAttendees(String eventId)` | Conta participantes |
 
@@ -756,7 +758,7 @@ Implementa: `CreateMediaUploadUseCase`, `GetMediaAssetUseCase`, `RequestMediaDel
 
 | Classe | Descrição |
 |---|---|
-| `Event` | Entidade: id, title, date, time, format, host, cover, createdBy |
+| `Event` | Entidade: id, title, date, time, format, host, cover, streamUrl, location, place (`CityState`, opcional), createdBy |
 | `EventAttendee` | Entidade: eventId, userId |
 
 ### EventContractController
