@@ -89,6 +89,9 @@ public class CommunityService {
 
 	@Transactional
 	public CommunityMember join(String communityId, String userId) {
+		// Without this an unknown id left a membership row pointing at nothing.
+		repository.findById(communityId)
+			.orElseThrow(() -> new ApiException(404, "COMMUNITY_NOT_FOUND", "Comunidade nao encontrada."));
 		if (repository.isMember(communityId, userId)) {
 			throw new ApiException(409, "ALREADY_MEMBER", "Voce ja e membro desta comunidade.");
 		}

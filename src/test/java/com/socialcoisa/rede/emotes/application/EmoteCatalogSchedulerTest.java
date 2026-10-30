@@ -19,19 +19,18 @@ class EmoteCatalogSchedulerTest {
 	private final EmoteCatalogService servico = mock(EmoteCatalogService.class);
 
 	/**
-	 * Sinal de que a thread de boot chamou `refresh()`. Nao da para esperar com
-	 * `verify(servico, timeout(...)).refresh()`: o `refresh()` e `synchronized`, e a chamada de
-	 * verificacao segura o monitor do mock enquanto espera. Se a thread de boot chega depois, fica
-	 * travada nesse monitor ate o timeout e o teste falha (acontecia na suite inteira, sob carga).
+	 * Espera a chamada da thread de boot por um latch, e nao por verify(timeout): `refresh()` e
+	 * `synchronized`, e o verify com timeout segura o monitor do mock enquanto espera. Se a thread
+	 * de boot chegasse depois do verify (suite inteira, maquina ocupada), ela ficava bloqueada os
+	 * 15s inteiros e o teste falhava sem regressao nenhuma.
 	 */
-	private final CountDownLatch chamou = new CountDownLatch(1);
+	private final CountDownLatch chamado = new CountDownLatch(1);
 
 	@Test
 	void montaNoBootEmOutraThreadSemSegurarAInicializacao() throws Exception {
 		EmoteCatalogScheduler agendador = new EmoteCatalogScheduler(servico, true);
-
 		doAnswer(invocacao -> {
-			chamou.countDown();
+			chamado.countDown();
 			return null;
 		}).when(servico).refresh();
 
@@ -43,21 +42,22 @@ class EmoteCatalogSchedulerTest {
 		// do agendador comum. A janela do verify e folgada de proposito: a suite inteira roda em
 		// paralelo com outras classes e 5s estouravam por contencao, nao por regressao.
 		assertThat(decorrido).isLessThan(1_000);
-		assertThat(chamou.await(15, TimeUnit.SECONDS)).isTrue();
+		assertThat(chamado.await(15, TimeUnit.SECONDS)).isTrue();
+		verify(servico).refresh();
 	}
 
 	@Test
 	void erroQueNaoEExcecaoNoBootNaoEscapaDaThread() throws Exception {
 		EmoteCatalogScheduler agendador = new EmoteCatalogScheduler(servico, true);
 		doAnswer(invocacao -> {
-			chamou.countDown();
+			chamado.countDown();
 			throw new NoClassDefFoundError("com/exemplo/Sumiu");
 		}).when(servico).refresh();
 
 		agendador.warmUpOnBoot();
 
 		// Regressao: um Error matava a thread sem log e a montagem simplesmente nao acontecia.
-		assertThat(chamou.await(15, TimeUnit.SECONDS)).isTrue();
+		assertThat(chamado.await(15, TimeUnit.SECONDS)).isTrue();
 		Thread.sleep(200);
 		assertThat(Thread.getAllStackTraces().keySet().stream().map(Thread::getName))
 			.doesNotContain("figurinhas-boot");
