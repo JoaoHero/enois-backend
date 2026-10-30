@@ -36,6 +36,10 @@ public class Post {
 	private String repostOfAuthor;
 	/** Repost COM opinião: o content é o comentário do reposter e o original aparece citado. */
 	private boolean repostWithOpinion;
+	/** QUESTION only: the comment the asker accepted as the answer (null = none yet). */
+	private String acceptedCommentId;
+	/** When the question was marked resolved (null = open). */
+	private Instant resolvedAt;
 
 	private Post(PostId id, UserId authorId, PostType type, String content, String pageHtml, List<String> tags,
 			List<String> mediaIds, String communityId, String topic, String channelId, Instant createdAt,
@@ -234,6 +238,24 @@ public class Post {
 		this.repostOfAuthor = originalAuthorUsername;
 		this.repostWithOpinion = withOpinion;
 		return this;
+	}
+
+	/**
+	 * Accepted-answer state as read from storage. Written only by its own targeted update (see
+	 * PostRepository#updateAcceptedAnswer), never by save(), so a counter save cannot undo it.
+	 */
+	public Post markAcceptedAnswer(String commentId, Instant resolvedAt) {
+		this.acceptedCommentId = commentId;
+		this.resolvedAt = resolvedAt;
+		return this;
+	}
+
+	public String acceptedCommentId() {
+		return acceptedCommentId;
+	}
+
+	public Instant resolvedAt() {
+		return resolvedAt;
 	}
 
 	public boolean repostWithOpinion() {

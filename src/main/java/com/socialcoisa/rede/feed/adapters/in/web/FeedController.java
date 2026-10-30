@@ -158,10 +158,11 @@ class FeedController {
 	Object feed(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestParam(required = false) String cursor, @RequestParam(defaultValue = "20") int limit,
 			@RequestParam(defaultValue = "FOR_YOU") FeedTab tab,
-			@RequestParam(required = false) Set<com.socialcoisa.rede.feed.domain.PostType> type) {
+			@RequestParam(required = false) Set<com.socialcoisa.rede.feed.domain.PostType> type,
+			@RequestParam(required = false) Boolean resolved) {
 		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return getFeedUseCase.getFeed(new GetFeedQuery(user.id(), cursorCodec.decode(cursor), limit, tab,
-			type == null ? Set.of() : type));
+			type == null ? Set.of() : type, resolved));
 	}
 
 	/**

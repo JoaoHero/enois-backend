@@ -66,7 +66,7 @@ public class CoinService {
 	public static final long STREAK_BONUS = FAIS(25L);
 	/** Teto de envio para contas com menos de 7 dias. */
 	private static final long NEW_ACCOUNT_DAILY_CAP = FAIS(500L);
-	private static final Duration NEW_ACCOUNT_WINDOW = Duration.ofDays(7);
+	public static final Duration NEW_ACCOUNT_WINDOW = Duration.ofDays(7);
 
 	private final CoinLedgerRepository ledger;
 	private final CoinRateService rateService;

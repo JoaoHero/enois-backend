@@ -160,14 +160,23 @@ interface SpringDataPostJpaRepository extends JpaRepository<PostJpaEntity, Strin
 	List<PostJpaEntity> findTrending(@Param("status") PostStatus status,
 			@Param("excluded") Collection<PostType> excluded, @Param("since") Instant since, Pageable pageable);
 
-	/** Feed "Tudo" filtrado por tipos de post. */
+	/** Feed "Tudo" filtrado por tipos de post; `resolved` (nulo = tanto faz) filtra as dúvidas resolvidas. */
 	@Query("""
 			SELECT p FROM PostJpaEntity p
 			WHERE p.status = :status AND p.type IN :types AND p.channelId IS NULL
 			  AND p.createdAt < :before
+			  AND (:resolved IS NULL OR (:resolved = TRUE AND p.resolvedAt IS NOT NULL)
+			    OR (:resolved = FALSE AND p.resolvedAt IS NULL))
 			ORDER BY p.createdAt DESC""")
 	List<PostJpaEntity> findByTypes(@Param("status") PostStatus status,
-			@Param("types") Collection<PostType> types, @Param("before") Instant before, Pageable pageable);
+			@Param("types") Collection<PostType> types, @Param("resolved") Boolean resolved,
+			@Param("before") Instant before, Pageable pageable);
+
+	/** Resposta aceita da dúvida: só esta escrita toca as duas colunas (o save() não as grava). */
+	@org.springframework.data.jpa.repository.Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("UPDATE PostJpaEntity p SET p.acceptedCommentId = :commentId, p.resolvedAt = :resolvedAt WHERE p.id = :id")
+	int updateAcceptedAnswer(@Param("id") String id, @Param("commentId") String commentId,
+			@Param("resolvedAt") Instant resolvedAt);
 
 	/** Todos os posts do autor (sem filtro de status) — ban cleanup, PR #37. */
 }

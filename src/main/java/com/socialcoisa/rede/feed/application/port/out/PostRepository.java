@@ -62,7 +62,11 @@ public interface PostRepository {
 	List<Post> findTrending(Instant since, int limit);
 
 	/** Feed "Tudo" filtrado por tipos de post. */
-	List<Post> findActiveByTypes(Set<PostType> types, Instant before, int limit);
+	/** `resolved` (QUESTION): true = with an accepted answer, false = open, null = both. */
+	List<Post> findActiveByTypes(Set<PostType> types, Boolean resolved, Instant before, int limit);
+
+	/** Sets (or clears, with nulls) the accepted answer of a question; touches nothing else. */
+	void updateAcceptedAnswer(PostId id, String commentId, Instant resolvedAt);
 
 	/** Feed corporativo: só o que a identidade profissional assinou. */
 	List<Post> findActiveCorporate(Instant before, int limit);

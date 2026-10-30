@@ -63,7 +63,22 @@ faíscas = base × 10.000 / cotaçãoAtualEmMicros     (mínimo 1 milésimo, pis
 - Faísca subiu → a pessoa recebe **menos faíscas** pelo mesmo valor.
 - Faísca caiu → recebe **mais faíscas** pelo mesmo valor.
 - Escala: presença diária (5), bônus de sequência (25), reação recebida (1), prêmios dos jogos
-  diários (10/5/3/1) e bônus de microprojeto (200).
+  diários (10/5/3/1), bônus de microprojeto (200) e ajuda (20).
+
+### Ajuda: resposta aceita numa dúvida
+
+A recompensa vai para quem **ajudou**, não para o que ficou popular. Quando quem perguntou aceita
+uma resposta (`POST /api/feed/posts/{postId}/accepted-answer`), quem respondeu recebe
+`scaledReward(20)` (`QuestionAnswerService.HELP_REWARD`) com ref `resposta:{postId}`:
+
+- **Uma vez por dúvida, para sempre.** Trocar a resposta aceita (ou desfazer e aceitar de novo) não
+  paga outra vez, nem para outra pessoa: não há como girar a torneira alternando a escolha.
+- **Sem conta nova:** se quem responde ou quem pergunta tem menos de 7 dias de conta
+  (`CoinService.NEW_ACCOUNT_WINDOW`, a mesma janela do teto de envio), a resposta é aceita mas não
+  paga. Uma conta extra perguntando não vira fonte de faíscas.
+- **Não paga a si mesmo:** a própria resposta não pode ser aceita.
+- **Efeito colateral:** o pagamento roda depois do commit, numa transação própria; se falhar, a
+  resposta continua aceita (fica só o log `answer_reward_failed`).
 
 **Não são escalados:** o airdrop inicial (distribuição do gênese), o comunicado histórico de
 desculpas e os prêmios concedidos manualmente pela administração — são valores decididos na hora,

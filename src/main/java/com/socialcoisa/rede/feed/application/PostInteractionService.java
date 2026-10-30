@@ -174,7 +174,7 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 	public CommentsPage getComments(GetCommentsQuery query) {
 		int limit = normalizeLimit(query.limit());
 		Instant before = query.before().orElse(DEFAULT_BEFORE);
-		activePost(query.postId());
+		String acceptedCommentId = activePost(query.postId()).acceptedCommentId();
 		Set<String> hidden = query.viewerId()
 			.map(viewer -> blockedUsersReader.hiddenIdsFor(viewer.value()))
 			.orElse(Set.of());
@@ -205,7 +205,8 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 					.withAvatarFrame(p != null ? p.avatarFrame() : null)
 					.withAuthorStyle(NameStyleView.from(p))
 					.withContributor(contributorIds.contains(c.authorId().value())
-						? ContributorTagView.from(p) : null);
+						? ContributorTagView.from(p) : null)
+					.withAccepted(c.id().equals(acceptedCommentId));
 			})
 			.toList();
 		// Reacao do proprio leitor: sem isso o front nao sabe que ele ja reagiu e a reacao

@@ -112,7 +112,7 @@ public class GetFeedService implements GetFeedUseCase, GetProfilePostsUseCase, G
 			case ALL -> {
 				// Filtro por tipo de post (opcional): se o frontend mandar types, filtra.
 				if (query.types() != null && !query.types().isEmpty()) {
-					yield postRepository.findActiveByTypes(query.types(), before, limit);
+					yield postRepository.findActiveByTypes(query.types(), query.resolved(), before, limit);
 				}
 				Collection<String> blocked = readerPreferences.blockedTopics(query.userId().value());
 				yield blocked.isEmpty() ? postRepository.findActiveAll(before, limit)
