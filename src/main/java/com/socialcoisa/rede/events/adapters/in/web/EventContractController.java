@@ -96,21 +96,23 @@ class EventContractController {
 		String viewer = viewerId(sessionToken);
 		List<String> ids = page.items().stream().map(Event::id).toList();
 		Set<String> attendingIds = viewer != null ? eventService.attendingEventIds(viewer, ids) : Set.of();
-		var items = page.items().stream().map(event -> toView(event, attendingIds.contains(event.id()))).toList();
+		var items = page.items().stream().map(event -> toView(event, attendingIds.contains(event.id()), viewer)).toList();
 		// Cursor pela pagina que veio do banco: esconder evento vencido nao pode encerrar a paginacao.
 		String nextCursor = page.fetched().size() == limit
 			? cursorCodec.encode(page.fetched().get(page.fetched().size() - 1).createdAt()) : null;
 		return new PageResponse<>(items, nextCursor);
 	}
 
-	private EventView toView(Event event, boolean attending) {
+	/** `viewerId` null = anonimo. So o dono gerencia a serie; o id dele nao sai na resposta. */
+	private EventView toView(Event event, boolean attending, String viewerId) {
 		// Depois da sanitizacao as presencas somem: o numero guardado sustenta o total.
 		Integer finalCount = event.finalAttendeesCount();
 		int attendees = finalCount != null ? finalCount : eventService.countAttendees(event.id());
 		return new EventView(event.id(), event.title(), event.date(), event.time(), event.format(), event.host(),
 			attendees, event.cover(), event.streamUrl(), event.location(), eventService.hasEnded(event), attending,
 			event.recurrence().name(), event.seriesId(),
-			recurrenceService.nextOccurrenceDate(event).map(java.time.LocalDate::toString).orElse(null));
+			recurrenceService.nextOccurrenceDate(event).map(java.time.LocalDate::toString).orElse(null),
+			event.createdBy().equals(viewerId));
 	}
 
 	@GetMapping("/{eventId}")
@@ -120,7 +122,7 @@ class EventContractController {
 		String viewer = viewerId(sessionToken);
 		boolean attending = viewer != null
 			&& eventService.attendingEventIds(viewer, List.of(event.id())).contains(event.id());
-		return toView(event, attending);
+		return toView(event, attending, viewer);
 	}
 
 	@PostMapping
@@ -134,7 +136,7 @@ class EventContractController {
 				Event e = eventService.create(request.title(), request.date(), request.time(), request.format(),
 					request.host(), request.cover(), request.streamUrl(), request.location(), request.recurrence(),
 					user.id().value());
-				return new CommandResponse(201, toView(e, false));
+				return new CommandResponse(201, toView(e, false, user.id().value()));
 			});
 	}
 
@@ -149,7 +151,7 @@ class EventContractController {
 		return idempotency.execute(user.id(), "PATCH", "/api/events/{eventId}/recurrence", idempotencyKey, hash,
 			() -> {
 				Event event = eventService.changeRecurrence(eventId, request.recurrence(), user.id().value());
-				return new CommandResponse(200, toView(event, false));
+				return new CommandResponse(200, toView(event, false, user.id().value()));
 			});
 	}
 
@@ -191,7 +193,7 @@ class EventContractController {
 
 	record EventView(String id, String title, String date, String time, String format, String host, int attendees,
 			String cover, String streamUrl, String location, boolean expired, boolean attending, String recurrence,
-			String seriesId, String nextOccurrenceDate) {
+			String seriesId, String nextOccurrenceDate, boolean canManageRecurrence) {
 	}
 
 	record CreateEventRequest(String title, String date, String time, String format, String host, String cover,

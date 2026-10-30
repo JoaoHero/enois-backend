@@ -154,6 +154,35 @@ class EventRecurrenceTests {
 	}
 
 	@Test
+	void onlyTheOwnerSeesCanManageRecurrence() throws Exception {
+		var host = auth.authenticate("evrec_host9");
+		var other = auth.authenticate("evrec_other9");
+		String date = LocalDate.now(ZoneOffset.UTC).plusDays(10).toString();
+		JsonNode created = create(host, "evrec Gestao", date, "WEEKLY", "evrec-create-9");
+		String eventId = created.get("id").asText();
+		assertThat(created.get("canManageRecurrence").asBoolean()).isTrue();
+		String item = "$.items[?(@.id == '" + eventId + "')].canManageRecurrence";
+
+		mockMvc.perform(get("/events/" + eventId).header("X-Session-Token", host.token()))
+			.andExpect(jsonPath("$.canManageRecurrence").value(true));
+		mockMvc.perform(get("/events").param("recurring", "true").param("limit", "200")
+				.header("X-Session-Token", host.token()))
+			.andExpect(jsonPath(item).value(org.hamcrest.Matchers.contains(true)));
+
+		mockMvc.perform(get("/events/" + eventId).header("X-Session-Token", other.token()))
+			.andExpect(jsonPath("$.canManageRecurrence").value(false));
+		mockMvc.perform(get("/events").param("recurring", "true").param("limit", "200")
+				.header("X-Session-Token", other.token()))
+			.andExpect(jsonPath(item).value(org.hamcrest.Matchers.contains(false)));
+
+		mockMvc.perform(get("/events/" + eventId))
+			.andExpect(jsonPath("$.canManageRecurrence").value(false))
+			.andExpect(jsonPath("$.createdBy").doesNotExist());
+		mockMvc.perform(get("/events").param("recurring", "true").param("limit", "200"))
+			.andExpect(jsonPath(item).value(org.hamcrest.Matchers.contains(false)));
+	}
+
+	@Test
 	void settingNoneStopsTheSeries() throws Exception {
 		var host = auth.authenticate("evrec_host6");
 		LocalDate yesterday = LocalDate.now(ZoneOffset.UTC).minusDays(1);

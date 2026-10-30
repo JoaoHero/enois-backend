@@ -306,7 +306,9 @@ Nota: Criar vaga requer reputação >= 300.
   (`403 NOT_EVENT_OWNER`). A recorrência vale para a série inteira; `NONE` encerra a série.
 - `GET /api/events?recurring=true` lista só eventos com recorrência (combina com `format`, `includePast`, `cursor`).
 - `EventView` ganha `recurrence: string` (`NONE|WEEKLY|BIWEEKLY|MONTHLY`), `seriesId: string|null` (id da primeira
-  ocorrência) e `nextOccurrenceDate: string|null` (`AAAA-MM-DD`, calculada; `null` para evento avulso).
+  ocorrência), `nextOccurrenceDate: string|null` (`AAAA-MM-DD`, calculada; `null` para evento avulso) e
+  `canManageRecurrence: boolean` (`true` só quando o viewer autenticado criou o evento; `false` para anônimo e
+  para os demais). O id de quem criou não é exposto.
 - De hora em hora (`rede.events.recurrence.*`, fuso `America/Sao_Paulo`), a ocorrência mais recente que já terminou
   agenda a próxima (mesmo título, formato, host, capa, link e local; presenças **não** são copiadas) e quem confirmou
   presença recebe a notificação `EVENT_NEXT_OCCURRENCE` com `href` `/eventos?evento={id}`. Mensal conta a partir
