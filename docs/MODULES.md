@@ -417,7 +417,8 @@ rolagem infinita. Uma linha por pessoa em `feed_seen_markers` (V214), lida e gra
 `FeedSeenMarkerRepository` (`FeedSeenMarkerJdbcAdapter`).
 
 - `GET /api/feed` sem `cursor` devolve `lastSeenAt`: o marcador **antes** desta visita (ou `null`).
-  Páginas com `cursor` devolvem `null`; o front guarda o valor da primeira página.
+  Páginas com `cursor` devolvem `null`; o front guarda o valor da primeira página. Abas ranqueadas
+  (`FOR_YOU`, `TRENDING`, `INTERACTED`) também devolvem `null`: o divisor depende de ordem cronológica.
 - `POST /api/feed/seen {seenUntil}` é um único upsert com `greatest(...)`: o marcador nunca volta, mesmo
   com chamadas concorrentes ou fora de ordem, e o valor é limitado ao relógio do servidor (sem futuro).
 - Front: desenhar o divisor "Você está em dia" antes do primeiro post com `createdAt <= lastSeenAt`;

@@ -167,7 +167,8 @@ class FeedController {
 		var page = getFeedUseCase.getFeed(new GetFeedQuery(user.id(), before, limit, tab,
 			type == null ? Set.of() : type));
 		// "Voce esta em dia": only the first page carries the marker (see FeedResponse).
-		return FeedResponse.of(page, before.isEmpty() ? feedSeenMarkers.lastSeenAt(user.id()).orElse(null) : null);
+		boolean withMarker = before.isEmpty() && FeedResponse.carriesMarker(tab);
+		return FeedResponse.of(page, withMarker ? feedSeenMarkers.lastSeenAt(user.id()).orElse(null) : null);
 	}
 
 	/**

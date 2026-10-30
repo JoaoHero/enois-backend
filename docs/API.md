@@ -177,11 +177,14 @@ Resposta:
 
 `lastSeenAt` (ISO-8601 ou `null`): o marcador "Você está em dia" da pessoa **como estava antes desta
 visita**. Só vem na primeira página (sem `cursor`); páginas com `cursor` mandam `null` e o front guarda o
-valor recebido na primeira. `null` na primeira página significa que a pessoa nunca marcou nada (não
+valor recebido na primeira. Só vem nas abas em ordem cronológica (`ALL`, `UNSEEN`, filtros por tipo e as
+legadas); `FOR_YOU` (tópicos preferidos primeiro), `TRENDING` (por reações) e `INTERACTED` mandam sempre
+`null`, porque nelas "o primeiro post mais antigo" não marca a fronteira do que é novo. `null` na primeira página significa que a pessoa nunca marcou nada (não
 desenhe o divisor).
 
 Contrato do front: desenhe o divisor "Você está em dia" **antes do primeiro post com `createdAt` menor
-ou igual a `lastSeenAt`**. Se nenhum post da lista carregada for tão antigo, o divisor ainda não aparece
+ou igual a `lastSeenAt`**, olhando os posts que a resposta trouxe (quarentena, silenciados e bloqueios já
+foram filtrados no servidor). Se nenhum post da lista carregada for tão antigo, o divisor ainda não aparece
 (ele surge quando a página com posts antigos chegar). Quando a pessoa rolar além do post mais recente,
 chame `POST /api/feed/seen` com o `createdAt` desse post (uma vez por visita basta).
 
