@@ -1293,12 +1293,56 @@ corporativo do usuário (importável do LinkedIn).
 
 | Rota | Descrição |
 |---|---|
-| `GET /empresas` / `GET /empresa/{slug}` / `GET /empresas/mine` | Catálogo (derivado de vagas), página, minhas |
-| `POST /empresas` / `PATCH /empresas/{companyId}` / `.../members` | Criar, editar, membros |
+| `GET /empresas` / `GET /empresa/{slug}` / `GET /empresas/mine` | Páginas criadas, página, as páginas de que a pessoa faz parte (qualquer papel) |
+| `POST /empresas` / `PATCH /empresas/{companyId}` / `.../members` | Criar, editar, membros (a lista da equipe só para quem é da equipe; cada membro vem com `person`) |
+| `GET /empresas/diretorio` / `GET /empresas/setores` | Public directory (pages, names on internal jobs, names on external jobs) / sectors of active pages |
+| `POST /empresas/{companyId}/follow` / `DELETE .../follow` | Follow / unfollow a page (idempotent; team members can follow too) |
 | `GET /microprojetos` / `POST /empresas/{companyId}/microprojetos` | Catálogo / criar microprojeto |
 | `POST /microprojetos/{projectId}/proposals` / `.../complete` / `.../select` | Propostas, concluir, selecionar |
+| `GET /microprojetos/{projectId}` | Projeto; as propostas (com `person`) só para quem gerencia a página (EDITOR ou acima) |
 | `POST /me/business-profile` / `.../import` / `.../activate` | Perfil corporativo, importar, ativar |
 | `POST /me/business-profile/username` | Troca o nametag (o `@` e o fim de `/profissional/{nametag}`) |
+
+Na página (`GET /empresa/{slug}`) cada microprojeto traz `myProposal` (o status da proposta de
+quem vê, ou nulo) e, para quem gerencia a página, `proposalCount`.
+
+The page also carries `jobs` (up to 20 open jobs linked to it), `stats` (`openProjects`,
+`completedProjects`, `openJobs`, `followers`), `following` (false for visitors), `reviews` (latest
+6) and `canPropose` (`SIGN_IN`, `TEAM`, `PROFESSIONAL_REQUIRED` or `OK`).
+
+**People.** Members, proposals and reviews carry a `person`
+`{ id, username, name, headline, avatar, identity, href }`: the account's ACTIVE professional
+profile (`identity: CORPORATE`, `href: /profissional/{username}`), or the social profile
+(`SOCIAL`, `/perfil/{username}`) only when the account has no active professional profile.
+
+**Proposals.** Sending one requires an active professional profile (403
+`NO_ACTIVE_CORPORATE_PROFILE`). It opens (or reuses) a professional conversation between the
+proposer and the page owner (kind `FREELANCE`, titled `Microprojeto: {title}`), posts the proposal
+in it and stores the conversation id on the proposal (`conversationId`, in the response and in
+the team's proposal list). Blocked pairs get 403 `USER_BLOCKED`.
+
+**Completing with a review.** `POST /microprojetos/{id}/complete` takes an optional
+`{ rating: 1..5, text?: up to 500 }`; it becomes the page's one review of the selected
+professional (`micro_project_reviews`, one row per project). A rating outside 1..5, or a text
+without a rating, is 400 `INVALID_RATING`.
+
+**Directory.** Entries are `{ kind, slug, name, logo, sector, location, openJobs, openProjects,
+followers }`. `PAGE` = an active page (counts from grouped reads, no per-page query). `JOBS` = open
+internal jobs not linked to a page whose name (case-insensitive) no active page has; `slug` null.
+`EXTERNAL` = external job names that no page has; when the same name also has internal jobs, the
+counts add up in that one `JOBS` entry. Order: `openJobs + openProjects` desc, then pages first,
+then name. `query` matches the name (case-insensitive); `sector` filters pages only, so a sector
+filter returns pages alone.
+
+**Jobs linked to a page.** `jobs.company_id` (V219). `POST /jobs` accepts `companyId`: the poster
+must be RECRUITER or above on that page (403 otherwise) and the job takes the page name and logo.
+Editing keeps the link and the page name. Job views (list and detail) carry `companySlug` (null
+when not linked). V219 linked existing jobs only when the poster is a member of an active page with
+the same name; a name match alone never links.
+
+**Followers are told.** Publishing a microproject or a linked job notifies the page followers
+(except the publisher) with kind `COMPANY_NEW_OPPORTUNITY` (professional context, push category
+JOBS), linking to `/empresa/{slug}`.
 
 O **nametag** do perfil profissional vive em namespace próprio (índice único no banco) e é
 independente do `@` social: a mesma conta pode ser `aminadojava` no social e `melsantos` no

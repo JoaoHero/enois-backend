@@ -28,4 +28,15 @@ public interface MicroProjectRepository {
 	List<MicroProjectProposal> proposalsOfProject(String projectId);
 
 	List<MicroProjectProposal> proposalsOfUser(String userId, int limit);
+
+	long countByCompanyAndStatus(String companyId, com.socialcoisa.rede.companies.domain.MicroProjectStatus status);
+
+	/** Open microprojects per company, in one grouped read. */
+	java.util.Map<String, Long> openCountsByCompany(java.util.Collection<String> companyIds);
+
+	com.socialcoisa.rede.companies.domain.MicroProjectReview saveReview(
+			com.socialcoisa.rede.companies.domain.MicroProjectReview review);
+
+	/** Latest reviews of a company, newest first (at most six). */
+	List<com.socialcoisa.rede.companies.domain.MicroProjectReview> latestReviews(String companyId);
 }
