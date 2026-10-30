@@ -462,7 +462,40 @@ perfil (os dois ou nenhum, UF válida, `""` nos dois limpa no PATCH, ausentes ma
 | POST | `/api/jobs/{jobId}/saves` | Salvar vaga | Sim |
 | DELETE | `/api/jobs/{jobId}/saves` | Remover vaga salva | Sim |
 
-Nota: Criar vaga requer reputação >= 300.
+Nota: Criar vaga requer reputação > 150.
+
+`POST /api/jobs` accepts an optional `companyId`: the poster must be RECRUITER or above on that
+company page (403 otherwise) and the job takes the page name and logo. Job views (list and detail)
+carry `companySlug` (null when the job is not linked to a page).
+
+---
+
+## Company pages
+
+| Method | Route | Description | Auth |
+|---|---|---|---|
+| GET | `/api/empresas/diretorio?query=&sector=&limit=60` | Directory (limit 1..200) | No |
+| GET | `/api/empresas/setores` | Distinct sectors of active pages | No |
+| GET | `/api/empresa/{slug}` | Page with projects, jobs, stats, reviews, viewer state | No (session adds viewer state) |
+| POST / DELETE | `/api/empresas/{companyId}/follow` | Follow / unfollow (idempotent) | Yes |
+| POST | `/api/microprojetos/{id}/proposals` | Proposal from the active professional profile | Yes |
+| POST | `/api/microprojetos/{id}/complete` | Complete, optionally with a review | Yes (EDITOR or above) |
+
+```text
+PersonView     { id, username, name, headline, avatar, identity: "CORPORATE" | "SOCIAL", href }
+Directory item { kind: "PAGE" | "JOBS" | "EXTERNAL", slug | null, name, logo | null, sector | null,
+                 location | null, openJobs, openProjects, followers }
+Page adds      jobs: [{ id, title, location, type, level, createdAt }] (max 20)
+               stats: { openProjects, completedProjects, openJobs, followers }
+               following: boolean
+               reviews: [{ projectId, projectTitle, rating, text | null, createdAt, person }] (latest 6)
+               canPropose: "OK" | "SIGN_IN" | "PROFESSIONAL_REQUIRED" | "TEAM"
+Follow         -> { following, followers }
+Proposal       -> { id, status, conversationId }   (403 NO_ACTIVE_CORPORATE_PROFILE without an
+                  active professional profile)
+Team proposals { id, userId, message, status, proposedAt, person, conversationId }
+Complete body  { rating?: 1..5, text?: <= 500 }     (400 INVALID_RATING)
+```
 
 ---
 

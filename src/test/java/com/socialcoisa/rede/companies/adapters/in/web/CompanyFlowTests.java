@@ -38,6 +38,7 @@ class CompanyFlowTests {
 	void companyMicroProjectFlowEndToEnd() throws Exception {
 		var owner = auth("cflow_owner");
 		var pro = auth("cflow_pro");
+		new TestAuthHelper(mockMvc, objectMapper).activateProfessional(pro);
 
 		MvcResult created = mockMvc.perform(post("/empresas")
 				.header("X-Session-Token", owner.token())
@@ -154,6 +155,7 @@ class CompanyFlowTests {
 		var owner = auth("cflow_view_owner");
 		var editor = auth("cflow_view_editor");
 		var pro = auth("cflow_view_pro");
+		new TestAuthHelper(mockMvc, objectMapper).activateProfessional(pro);
 		var outsider = auth("cflow_view_out");
 		String name = "Empresa Visao " + java.util.UUID.randomUUID().toString().substring(0, 8);
 		MvcResult created = mockMvc.perform(post("/empresas")

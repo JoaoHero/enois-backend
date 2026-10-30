@@ -53,6 +53,7 @@ class JobContractController {
 	private final boolean externalListingEnabled;
 	private final int externalListingLimit;
 	private final tools.jackson.databind.ObjectMapper objectMapper;
+	private final com.socialcoisa.rede.companies.application.CompanyService companyService;
 
 	JobContractController(IdempotencyApplicationService idempotency, CurrentUserResolver currentUserResolver,
 			JobService jobService, CursorCodec cursorCodec,
@@ -64,7 +65,9 @@ class JobContractController {
 			@org.springframework.beans.factory.annotation.Value("${rede.jobs.import.external-listing-enabled:false}") boolean externalListingEnabled,
 			@org.springframework.beans.factory.annotation.Value("${rede.jobs.import.external-listing-limit:20}") int externalListingLimit,
 			com.socialcoisa.rede.jobs.application.port.out.CompanyDirectoryReader companyDirectory,
-			com.socialcoisa.rede.jobs.application.ExternalJobSubmissionService externalJobSubmission) {
+			com.socialcoisa.rede.jobs.application.ExternalJobSubmissionService externalJobSubmission,
+			com.socialcoisa.rede.companies.application.CompanyService companyService) {
+		this.companyService = companyService;
 		this.idempotency = idempotency;
 		this.currentUserResolver = currentUserResolver;
 		this.jobService = jobService;
@@ -105,7 +108,7 @@ class JobContractController {
 		Job job = jobService.create(body.title(), body.company(), body.logo(), body.location(), body.type(), body.level(),
 			body.salary(), body.currency(), body.salaryMin(), body.salaryMax(), body.salaryPeriod(),
 			body.description(), body.skills(), toFieldInputs(body.applicationFields()), user.id().value(),
-			body.communityAgreement());
+			body.communityAgreement(), body.companyId());
 		return ResponseEntity.status(HttpStatus.CREATED).body(toView(job, user.id().value(), false, false, 0));
 	}
 
@@ -176,7 +179,7 @@ class JobContractController {
 					base.applicationsCount(), base.applied(), true, false, 0, null, base.applicationFields(),
 					base.status(), base.closedAt(), base.sourceType(), base.sourceUrl(), base.sourcePlatform(),
 					base.applyEmail(), base.description(), base.salaryMin(), base.salaryMax(),
-					base.salaryPeriod(), base.salaryLabel(), base.salaryNotInformed()));
+					base.salaryPeriod(), base.salaryLabel(), base.salaryNotInformed(), null));
 			}
 		}
 		return new PageResponse<>(views, null);
@@ -448,6 +451,7 @@ class JobContractController {
 		};
 		Set<String> savedIds = authenticated ? jobService.savedJobIds(viewer, ids) : Set.of();
 		Map<String, Integer> counts = authenticated ? jobService.applicationsCountByJobIds(ids) : Map.of();
+		Map<String, String> slugs = companySlugs(jobs);
 		List<JobView> items = jobs.stream()
 			.map(job -> {
 				boolean owner = authenticated && viewer.equals(job.postedBy());
@@ -459,7 +463,7 @@ class JobContractController {
 					job.status().name(), job.closedAt() != null ? job.closedAt().toString() : null,
 					"INTERNAL", null, null, null,
 					job.description(), formatAmount(job.salaryMin()), formatAmount(job.salaryMax()),
-					job.salaryPeriod(), salaryLabel(job), false);
+					job.salaryPeriod(), salaryLabel(job), false, slugs.get(job.companyId()));
 			})
 			.toList();
 		String nextCursor = jobs.size() == limit
@@ -506,7 +510,7 @@ class JobContractController {
 			job.importedAt() != null ? job.importedAt().toString() : null, 0, false, false, owner, 0, null,
 			List.of(), "OPEN", null, "EXTERNAL", job.url(), job.platform(), job.applyEmail(),
 			job.description(), job.salaryMin(), job.salaryMax(), job.salaryPeriod(), externalSalaryLabel(job),
-			job.salaryNotInformed());
+			job.salaryNotInformed(), null);
 	}
 
 	private JobView toView(Job job, String viewer, boolean applied, boolean saved, int applicationsCount) {
@@ -516,7 +520,18 @@ class JobContractController {
 			fieldViews(job), job.status().name(), job.closedAt() != null ? job.closedAt().toString() : null,
 			"INTERNAL", null, null, null,
 			job.description(), formatAmount(job.salaryMin()), formatAmount(job.salaryMax()),
-			job.salaryPeriod(), salaryLabel(job), false);
+			job.salaryPeriod(), salaryLabel(job), false, companySlugs(List.of(job)).get(job.companyId()));
+	}
+
+	/** Slug of the company page each job is linked to, in one read (jobs without a page are left out). */
+	private Map<String, String> companySlugs(List<Job> jobs) {
+		Set<String> ids = jobs.stream().map(Job::companyId).filter(java.util.Objects::nonNull)
+			.collect(java.util.stream.Collectors.toSet());
+		Map<String, String> slugs = new java.util.HashMap<>();
+		if (!ids.isEmpty()) {
+			companyService.byIds(ids).forEach(company -> slugs.put(company.id(), company.slug()));
+		}
+		return slugs;
 	}
 
 	/** Faixa da vaga nova em pt-BR: "R$ 1.500 / mês" ou "de R$ 1.500 até R$ 2.000 / mês". */
@@ -627,7 +642,9 @@ class JobContractController {
 			// ("R$ 1.500 / mês" ou "de R$ 1.500 até R$ 2.000 / mês"); vagas antigas trazem só
 			// o texto livre em `salary` e nulos aqui.
 			String description, String salaryMin, String salaryMax, String salaryPeriod, String salaryLabel,
-			boolean salaryNotInformed) {
+			boolean salaryNotInformed,
+			// The company page the job is linked to (null when it is not linked).
+			String companySlug) {
 	}
 
 	/** Quem publicou a vaga, com o que sustenta a credibilidade dele. */
@@ -641,7 +658,9 @@ class JobContractController {
 	record CreateJobRequest(String title, String company, String logo, String location, String type, String level,
 			String salary, String currency, String salaryMin, String salaryMax, String salaryPeriod,
 			String description, List<String> skills, boolean communityAgreement,
-			List<ApplicationFieldRequest> applicationFields) {
+			List<ApplicationFieldRequest> applicationFields,
+			// Optional on create: post for this company page (RECRUITER or above). Ignored on edit.
+			String companyId) {
 	}
 
 	/** Cadastro de vaga EXTERNA: so o que a listagem mostra e o link para onde a candidatura vai. */

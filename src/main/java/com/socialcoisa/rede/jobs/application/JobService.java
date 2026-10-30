@@ -11,6 +11,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.socialcoisa.rede.companies.application.CompanyService;
+import com.socialcoisa.rede.companies.domain.Company;
+import com.socialcoisa.rede.companies.domain.CompanyRole;
 import com.socialcoisa.rede.jobs.application.port.out.JobAbandonPenaltyRepository;
 import com.socialcoisa.rede.jobs.application.port.out.JobApplicationDelivery;
 import com.socialcoisa.rede.jobs.application.port.out.JobApplicationStatusNotifier;
@@ -60,6 +63,7 @@ public class JobService {
 	private final Clock clock;
 	private final UserRateLimiter userRateLimiter;
 	private final BehavioralTimingGuard behavioralTimingGuard;
+	private final CompanyService companyService;
 
 	public JobService(JobRepository repository, ReputationService reputationService,
 			com.socialcoisa.rede.profile.application.port.out.UserProfileRepository userProfileRepository,
@@ -68,7 +72,8 @@ public class JobService {
 			JobApplicationDelivery delivery, JobApplicationStatusNotifier statusNotifier,
 			JobAbandonPenaltyRepository abandonPenalties,
 			tools.jackson.databind.ObjectMapper objectMapper, Clock clock,
-			UserRateLimiter userRateLimiter, BehavioralTimingGuard behavioralTimingGuard) {
+			UserRateLimiter userRateLimiter, BehavioralTimingGuard behavioralTimingGuard,
+			CompanyService companyService) {
 		this.repository = repository;
 		this.reputationService = reputationService;
 		this.userProfileRepository = userProfileRepository;
@@ -81,13 +86,23 @@ public class JobService {
 		this.clock = clock;
 		this.userRateLimiter = userRateLimiter;
 		this.behavioralTimingGuard = behavioralTimingGuard;
+		this.companyService = companyService;
 	}
 
 	@Transactional
 	public Job create(String title, String company, String logo, String location, String type, String level,
 			String salary, String currency, String salaryMin, String salaryMax, String salaryPeriod,
 			String description, List<String> skills, List<JobFieldInput> fields, String userId,
-			boolean communityAgreement) {
+			boolean communityAgreement, String companyId) {
+		// Posting for a company page takes RECRUITER or above on it; the job then carries the
+		// page's name and logo, so nobody publishes in a page's name without being on its team.
+		Company page = null;
+		if (StringUtils.hasText(companyId)) {
+			page = companyService.company(companyId.trim());
+			companyService.requireRole(page, userId, CompanyRole.RECRUITER);
+			company = page.name();
+			logo = StringUtils.hasText(page.logo()) ? page.logo() : logo;
+		}
 		validate(title, company, type, level);
 		int reputation = reputationService.reputationOf(userId);
 		// Freelance e trabalho pontual: qualquer pessoa com conta verificada publica, sem o
@@ -113,7 +128,13 @@ public class JobService {
 		Job job = Job.create(id, title, company, logo, location, type, level, normalizeSalary(salary),
 			normalizeCurrency(currency), range.min(), range.max(), range.period(), range.description(), skills,
 			normalizeFields(id, fields), userId, clock.instant(), clock.instant());
+		if (page != null) {
+			job = job.withCompany(page.id());
+		}
 		repository.save(job);
+		if (page != null) {
+			companyService.notifyFollowers(page, userId, "Nova vaga", page.name() + " abriu a vaga \"" + job.title() + "\".");
+		}
 		return job;
 	}
 
@@ -127,6 +148,11 @@ public class JobService {
 		if (!existing.postedBy().equals(userId)) {
 			throw new ApiException(403, "NOT_OWNER", "Voce nao pode editar uma vaga que nao criou.");
 		}
+		// A job linked to a page keeps the page's name and logo: editing does not move it out.
+		if (existing.companyId() != null) {
+			company = existing.company();
+			logo = existing.logo();
+		}
 		// A edição segue a mesma regra da criação: valor e descrição obrigatórios.
 		SalaryRange range = validateSalary(description, salaryMin, salaryMax, salaryPeriod);
 		// Editar NAO mexe no ciclo de vida: status e closedAt vem do registro atual, nunca do
@@ -134,7 +160,7 @@ public class JobService {
 		Job updated = Job.restore(jobId, title, company, logo, location, type, level, normalizeSalary(salary),
 			normalizeCurrency(currency), range.min(), range.max(), range.period(), range.description(), skills,
 			normalizeFields(jobId, fields), userId, existing.communityAgreedAt(),
-			existing.status(), existing.closedAt(), existing.postedAt(), clock.instant());
+			existing.status(), existing.closedAt(), existing.postedAt(), clock.instant(), existing.companyId());
 		repository.save(updated);
 		return updated;
 	}

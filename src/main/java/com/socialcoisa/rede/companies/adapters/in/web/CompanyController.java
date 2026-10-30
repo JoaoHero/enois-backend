@@ -1,11 +1,12 @@
 package com.socialcoisa.rede.companies.adapters.in.web;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.socialcoisa.rede.companies.application.CompanyDirectoryService;
 import com.socialcoisa.rede.companies.application.CompanyService;
 import com.socialcoisa.rede.companies.application.MicroProjectService;
 import com.socialcoisa.rede.companies.domain.Company;
@@ -22,6 +24,11 @@ import com.socialcoisa.rede.companies.domain.CompanyMember;
 import com.socialcoisa.rede.companies.domain.CompanyRole;
 import com.socialcoisa.rede.companies.domain.MicroProject;
 import com.socialcoisa.rede.companies.domain.MicroProjectProposal;
+import com.socialcoisa.rede.companies.domain.MicroProjectReview;
+import com.socialcoisa.rede.companies.domain.MicroProjectStatus;
+import com.socialcoisa.rede.corporate.application.CorporateProfileService;
+import com.socialcoisa.rede.corporate.domain.CorporateProfile;
+import com.socialcoisa.rede.jobs.application.port.out.CompanyDirectoryReader;
 import com.socialcoisa.rede.profile.application.port.out.UserProfileRepository;
 import com.socialcoisa.rede.profile.domain.UserProfile;
 import com.socialcoisa.rede.shared.web.CurrentUser;
@@ -39,13 +46,21 @@ class CompanyController {
 	private final MicroProjectService microProjects;
 	private final CurrentUserResolver currentUserResolver;
 	private final UserProfileRepository profiles;
+	private final CorporateProfileService corporateProfiles;
+	private final CompanyDirectoryService directory;
+	private final CompanyDirectoryReader jobsDirectory;
 
 	CompanyController(CompanyService companies, MicroProjectService microProjects,
-			CurrentUserResolver currentUserResolver, UserProfileRepository profiles) {
+			CurrentUserResolver currentUserResolver, UserProfileRepository profiles,
+			CorporateProfileService corporateProfiles, CompanyDirectoryService directory,
+			CompanyDirectoryReader jobsDirectory) {
 		this.profiles = profiles;
 		this.companies = companies;
 		this.microProjects = microProjects;
 		this.currentUserResolver = currentUserResolver;
+		this.corporateProfiles = corporateProfiles;
+		this.directory = directory;
+		this.jobsDirectory = jobsDirectory;
 	}
 
 	// --- leitura publica ---
@@ -55,6 +70,35 @@ class CompanyController {
 		// Listagem por enquanto via paginas de quem publica: o diretorio derivado de vagas
 		// (/jobs/companies) cobre descoberta; aqui ficam as paginas empresariais criadas.
 		return companies.listAll(publicListLimit(limit)).stream().map(CompanySummaryView::from).toList();
+	}
+
+	/** Pages, then names that only exist on internal or external jobs; most opportunities first. */
+	@GetMapping("/empresas/diretorio")
+	List<DirectoryEntryView> directory(@RequestParam(required = false) String query,
+			@RequestParam(required = false) String sector, @RequestParam(defaultValue = "60") int limit) {
+		return directory.directory(query, sector, Math.min(Math.max(limit, 1), 200)).stream()
+			.map(e -> new DirectoryEntryView(e.kind().name(), e.slug(), e.name(), e.logo(), e.sector(), e.location(),
+				e.openJobs(), e.openProjects(), e.followers()))
+			.toList();
+	}
+
+	@GetMapping("/empresas/setores")
+	List<String> sectors() {
+		return companies.sectors();
+	}
+
+	@PostMapping("/empresas/{companyId}/follow")
+	FollowView follow(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+			@PathVariable String companyId) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
+		return new FollowView(true, companies.setFollowing(companyId, user.id().value(), true));
+	}
+
+	@DeleteMapping("/empresas/{companyId}/follow")
+	FollowView unfollow(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+			@PathVariable String companyId) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
+		return new FollowView(false, companies.setFollowing(companyId, user.id().value(), false));
 	}
 
 	@GetMapping("/empresa/{slug}")
@@ -73,9 +117,42 @@ class CompanyController {
 				// ponytail: one count query per project; a page lists at most 50.
 				seesProposals(role) ? microProjects.proposals(p.id(), viewer.id().value()).size() : null))
 			.toList();
+		List<PageJobView> jobs = jobsDirectory.openJobsOf(company.id(), 20).stream()
+			.map(j -> new PageJobView(j.id(), j.title(), j.location(), j.type(), j.level(), j.postedAt().toString()))
+			.toList();
+		StatsView stats = new StatsView(microProjects.countByStatus(company.id(), MicroProjectStatus.OPEN),
+			microProjects.countByStatus(company.id(), MicroProjectStatus.COMPLETED),
+			jobsDirectory.openJobsByCompanyIds(List.of(company.id())).getOrDefault(company.id(), 0L),
+			companies.followerCount(company.id()));
+		String viewerId = viewer == null ? null : viewer.id().value();
 		return new CompanyDetailView(company.id(), company.slug(), company.name(), company.description(),
 			company.sector(), company.size(), company.location(), company.website(), company.logo(), company.cover(),
-			role == null ? null : role.name(), projects);
+			role == null ? null : role.name(), projects, jobs, stats, companies.isFollowing(company.id(), viewerId),
+			reviews(company.id()), canPropose(viewerId, role));
+	}
+
+	/** What the viewer can do on the page's microprojects. */
+	private String canPropose(String viewerId, CompanyRole role) {
+		if (viewerId == null) {
+			return "SIGN_IN";
+		}
+		if (role != null) {
+			return "TEAM";
+		}
+		return corporateProfiles.activeByUserIds(List.of(viewerId)).containsKey(viewerId) ? "OK"
+			: "PROFESSIONAL_REQUIRED";
+	}
+
+	private List<ReviewView> reviews(String companyId) {
+		List<MicroProjectReview> latest = microProjects.latestReviews(companyId);
+		if (latest.isEmpty()) {
+			return List.of();
+		}
+		Map<String, PersonView> people = peopleOf(latest.stream().map(MicroProjectReview::userId).toList());
+		return latest.stream()
+			.map(r -> new ReviewView(r.projectId(), microProjects.project(r.projectId()).title(), r.rating(), r.text(),
+				r.createdAt().toString(), people.get(r.userId())))
+			.toList();
 	}
 
 	// --- equipe ---
@@ -110,7 +187,7 @@ class CompanyController {
 			@PathVariable String companyId) {
 		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		List<CompanyMember> members = companies.members(companyId, user.id().value());
-		Map<String, UserProfile> people = profilesOf(members.stream().map(CompanyMember::userId).toList());
+		Map<String, PersonView> people = peopleOf(members.stream().map(CompanyMember::userId).toList());
 		return members.stream().map(m -> MemberView.from(m, people.get(m.userId()))).toList();
 	}
 
@@ -122,7 +199,7 @@ class CompanyController {
 		companies.requireRole(company, user.id().value(), CompanyRole.ADMIN);
 		CompanyMember member = companies.addMember(companyId, request.userId(),
 			request.role() == null ? CompanyRole.EDITOR : request.role());
-		return MemberView.from(member, profilesOf(List.of(member.userId())).get(member.userId()));
+		return MemberView.from(member, peopleOf(List.of(member.userId())).get(member.userId()));
 	}
 
 	// --- microprojetos ---
@@ -147,7 +224,7 @@ class CompanyController {
 		boolean team = viewer != null && seesProposals(companies.roleOf(project.companyId(), viewer.id().value()));
 		List<MicroProjectProposal> proposals = team ? microProjects.proposals(projectId, viewer.id().value())
 			: List.of();
-		Map<String, UserProfile> people = profilesOf(proposals.stream().map(MicroProjectProposal::userId).toList());
+		Map<String, PersonView> people = peopleOf(proposals.stream().map(MicroProjectProposal::userId).toList());
 		return Map.of("project", MicroProjectView.from(project, null, team ? proposals.size() : null), "proposals",
 			proposals.stream().map(p -> ProposalView.from(p, people.get(p.userId()))).toList());
 	}
@@ -166,7 +243,8 @@ class CompanyController {
 			@PathVariable String projectId, @RequestBody ProposeRequest request) {
 		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		MicroProjectProposal proposal = microProjects.propose(projectId, user.id().value(), request.message());
-		return Map.of("id", proposal.id(), "status", proposal.status().name());
+		return Map.of("id", proposal.id(), "status", proposal.status().name(), "conversationId",
+			proposal.conversationId());
 	}
 
 	@PostMapping("/microprojetos/{projectId}/proposals/{proposalId}/select")
@@ -179,9 +257,10 @@ class CompanyController {
 
 	@PostMapping("/microprojetos/{projectId}/complete")
 	Map<String, Object> complete(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
-			@PathVariable String projectId) {
+			@PathVariable String projectId, @RequestBody(required = false) CompleteRequest request) {
 		CurrentUser user = currentUserResolver.resolve(sessionToken);
-		MicroProject completed = microProjects.complete(projectId, user.id().value());
+		MicroProject completed = microProjects.complete(projectId, user.id().value(),
+			request == null ? null : request.rating(), request == null ? null : request.text());
 		return Map.of("status", completed.status().name());
 	}
 
@@ -190,8 +269,19 @@ class CompanyController {
 		return role == CompanyRole.OWNER || role == CompanyRole.ADMIN || role == CompanyRole.EDITOR;
 	}
 
-	private Map<String, UserProfile> profilesOf(Collection<String> userIds) {
-		return profiles.findAllByIds(userIds).stream().collect(Collectors.toMap(UserProfile::id, Function.identity()));
+	/**
+	 * Who each account is on a page: the ACTIVE professional identity when there is one, the
+	 * social profile otherwise (older accounts that never turned it on).
+	 */
+	private Map<String, PersonView> peopleOf(Collection<String> userIds) {
+		Map<String, CorporateProfile> professional = corporateProfiles.activeByUserIds(userIds);
+		Map<String, PersonView> people = new HashMap<>();
+		professional.forEach((id, p) -> people.put(id, PersonView.from(p)));
+		List<String> social = userIds.stream().filter(id -> !professional.containsKey(id)).distinct().toList();
+		if (!social.isEmpty()) {
+			profiles.findAllByIds(social).forEach(p -> people.put(p.id(), PersonView.from(p)));
+		}
+		return people;
 	}
 
 	private CurrentUser resolveSafely(String sessionToken) {
@@ -220,6 +310,27 @@ class CompanyController {
 	record ProposeRequest(String message) {
 	}
 
+	/** Optional review of the selected professional: rating 1..5, text up to 500. */
+	record CompleteRequest(Integer rating, String text) {
+	}
+
+	record DirectoryEntryView(String kind, String slug, String name, String logo, String sector, String location,
+			long openJobs, long openProjects, long followers) {
+	}
+
+	record FollowView(boolean following, long followers) {
+	}
+
+	record PageJobView(String id, String title, String location, String type, String level, String createdAt) {
+	}
+
+	record StatsView(long openProjects, long completedProjects, long openJobs, long followers) {
+	}
+
+	record ReviewView(String projectId, String projectTitle, int rating, String text, String createdAt,
+			PersonView person) {
+	}
+
 	record CompanySummaryView(String id, String slug, String name, String description, String sector, String location,
 			String logo, String cover) {
 		static CompanySummaryView from(Company c) {
@@ -229,19 +340,30 @@ class CompanyController {
 	}
 
 	record CompanyDetailView(String id, String slug, String name, String description, String sector, String size,
-			String location, String website, String logo, String cover, String myRole, List<MicroProjectView> projects) {
+			String location, String website, String logo, String cover, String myRole, List<MicroProjectView> projects,
+			List<PageJobView> jobs, StatsView stats, boolean following, List<ReviewView> reviews, String canPropose) {
 	}
 
-	/** The person behind a member or a proposal: enough to draw a name, an avatar and a link. */
-	record PersonView(String id, String username, String name, String headline, String avatar) {
+	/**
+	 * The person behind a member, a proposal or a review: enough to draw a name, an avatar and a
+	 * link. {@code identity} CORPORATE = the active professional profile; SOCIAL = the fallback.
+	 */
+	record PersonView(String id, String username, String name, String headline, String avatar, String identity,
+			String href) {
+		static PersonView from(CorporateProfile p) {
+			return new PersonView(p.userId(), p.username(), p.name(), p.headline(), p.avatar(), "CORPORATE",
+				"/profissional/" + p.username());
+		}
+
 		static PersonView from(UserProfile p) {
-			return p == null ? null : new PersonView(p.id(), p.username(), p.name(), p.headline(), p.avatar());
+			return new PersonView(p.id(), p.username(), p.name(), p.headline(), p.avatar(), "SOCIAL",
+				"/perfil/" + p.username());
 		}
 	}
 
 	record MemberView(String userId, String role, String createdAt, PersonView person) {
-		static MemberView from(CompanyMember m, UserProfile profile) {
-			return new MemberView(m.userId(), m.role().name(), m.createdAt().toString(), PersonView.from(profile));
+		static MemberView from(CompanyMember m, PersonView person) {
+			return new MemberView(m.userId(), m.role().name(), m.createdAt().toString(), person);
 		}
 	}
 
@@ -260,10 +382,10 @@ class CompanyController {
 	}
 
 	record ProposalView(String id, String userId, String message, String status, String proposedAt,
-			PersonView person) {
-		static ProposalView from(MicroProjectProposal p, UserProfile profile) {
+			PersonView person, String conversationId) {
+		static ProposalView from(MicroProjectProposal p, PersonView person) {
 			return new ProposalView(p.id(), p.userId(), p.message(), p.status().name(), p.proposedAt().toString(),
-				PersonView.from(profile));
+				person, p.conversationId());
 		}
 	}
 }
