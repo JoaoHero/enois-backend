@@ -3,6 +3,7 @@ package com.socialcoisa.rede.events.adapters.out.persistence;
 import java.time.Instant;
 
 import com.socialcoisa.rede.events.domain.Event;
+import com.socialcoisa.rede.shared.geo.CityState;
 import com.socialcoisa.rede.events.domain.EventRecurrence;
 
 import jakarta.persistence.Column;
@@ -12,7 +13,8 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "events", indexes = @Index(name = "idx_events_format", columnList = "format"))
+@Table(name = "events", indexes = {@Index(name = "idx_events_format", columnList = "format"),
+	@Index(name = "idx_events_state_city", columnList = "state, city_key")})
 class EventJpaEntity {
 
 	@Id
@@ -41,6 +43,16 @@ class EventJpaEntity {
 
 	@Column(length = 255)
 	private String location;
+
+	@Column(length = 80)
+	private String city;
+
+	@Column(length = 2)
+	private String state;
+
+	/** Cidade sem acento e minuscula (ver CityState.key): e por ela que o filtro compara. */
+	@Column(name = "city_key", length = 80)
+	private String cityKey;
 
 	@Column(name = "created_by", nullable = false)
 	private String createdBy;
@@ -77,6 +89,11 @@ class EventJpaEntity {
 		e.cover = event.cover();
 		e.streamUrl = event.streamUrl();
 		e.location = event.location();
+		if (event.place() != null) {
+			e.city = event.place().city();
+			e.state = event.place().state();
+			e.cityKey = event.place().cityKey();
+		}
 		e.createdBy = event.createdBy();
 		e.createdAt = event.createdAt();
 		e.updatedAt = event.updatedAt();
@@ -90,6 +107,9 @@ class EventJpaEntity {
 	Event toDomain() {
 		Event event = Event.restore(id, title, date, time, format, host, cover, streamUrl, location, createdBy,
 			createdAt, updatedAt);
+		if (city != null && state != null) {
+			event.placeAt(new CityState(city, state, cityKey));
+		}
 		if (sanitizedAt != null) {
 			event.markSanitized(finalAttendeesCount == null ? 0 : finalAttendeesCount, sanitizedAt);
 		}

@@ -19,7 +19,9 @@ public record OwnProfileView(String id, String username, String name, String hea
 		String nameTheme, String nameFont, String nameColor, String contributorTagColor,
 		/** Itens da loja equipados (ids do catalogo de cosmeticos) e o recado do perfil. */
 		String avatarFrame, String cardTheme, String nameplate, String bannerItem, String profileEffect,
-		String statusText, String statusIcon, String birthDate) {
+		String statusText, String statusIcon, String birthDate,
+		/** Cidade/UF do proprio perfil e se aparecem para os outros. */
+		String city, String state, boolean showCity) {
 
 	public static OwnProfileView from(UserProfile profile) {
 		return new OwnProfileView(profile.id(), profile.username(), profile.name(), profile.headline(), profile.email(),
@@ -33,7 +35,9 @@ public record OwnProfileView(String id, String username, String name, String hea
 			profile.nameFont(), profile.nameColor(), profile.contributorTagColor(), profile.avatarFrame(),
 			profile.cardTheme(), profile.nameplate(), profile.bannerItem(), profile.profileEffect(),
 			profile.statusText(), profile.statusIcon(),
-			profile.birthDate() != null ? profile.birthDate().toString() : null);
+			profile.birthDate() != null ? profile.birthDate().toString() : null,
+			profile.place() == null ? null : profile.place().city(),
+			profile.place() == null ? null : profile.place().state(), profile.showCity());
 
 	}
 
@@ -48,7 +52,7 @@ public record OwnProfileView(String id, String username, String name, String hea
 			bioHtml, bannerHtml, skills, goals, availability, portfolio, externalLinks, openToWork, isMentor,
 			connectionsCount, followersCount, reputation, postsCount, nickname, socialName, pronouns, badges, aka,
 			resumeUrl, resumeName, showRanking, nameTheme, nameFont, nameColor, contributorTagColor, avatarFrame,
-			cardTheme, nameplate, bannerItem, profileEffect, statusText, statusIcon, birthDate);
+			cardTheme, nameplate, bannerItem, profileEffect, statusText, statusIcon, birthDate, city, state, showCity);
 	}
 
 	/** Capa em HTML/CSS; so a leitura do perfil anexa (mesmo motivo da bio). */
@@ -57,6 +61,6 @@ public record OwnProfileView(String id, String username, String name, String hea
 			bioHtml, bannerHtml, skills, goals, availability, portfolio, externalLinks, openToWork, isMentor,
 			connectionsCount, followersCount, reputation, postsCount, nickname, socialName, pronouns, badges, aka,
 			resumeUrl, resumeName, showRanking, nameTheme, nameFont, nameColor, contributorTagColor, avatarFrame,
-			cardTheme, nameplate, bannerItem, profileEffect, statusText, statusIcon, birthDate);
+			cardTheme, nameplate, bannerItem, profileEffect, statusText, statusIcon, birthDate, city, state, showCity);
 	}
 }

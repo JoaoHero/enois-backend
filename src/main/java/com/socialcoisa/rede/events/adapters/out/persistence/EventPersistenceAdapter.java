@@ -41,10 +41,14 @@ class EventPersistenceAdapter implements EventRepository {
 	}
 
 	@Override
-	public List<Event> findAll(String format, Instant before, boolean recurringOnly, int limit) {
+	public List<Event> findAll(String format, String state, String cityKey, Instant before, boolean recurringOnly,
+			int limit) {
 		PageRequest page = PageRequest.of(0, limit);
 		List<EventJpaEntity> entities;
-		if (StringUtils.hasText(format)) {
+		if (state != null) {
+			entities = springData.findByPlace(state, cityKey, StringUtils.hasText(format) ? format : null, before,
+				recurringOnly, page);
+		} else if (StringUtils.hasText(format)) {
 			entities = springData.findByFormat(format, before, recurringOnly, page);
 		} else {
 			entities = springData.findAllBefore(before, recurringOnly, page);

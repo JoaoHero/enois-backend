@@ -87,12 +87,13 @@ class EventContractController {
 	 */
 	@GetMapping
 	PageResponse<EventView> events(@RequestParam(required = false) String format,
+			@RequestParam(required = false) String city, @RequestParam(required = false) String state,
 			@RequestParam(required = false) String cursor, @RequestParam(defaultValue = "20") int limit,
 			@RequestParam(defaultValue = "false") boolean includePast,
 			@RequestParam(defaultValue = "false") boolean recurring,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
 		Instant before = cursorCodec.decode(cursor).orElse(null);
-		var page = eventService.list(format, before, limit, includePast, recurring);
+		var page = eventService.list(format, city, state, before, limit, includePast, recurring);
 		String viewer = viewerId(sessionToken);
 		List<String> ids = page.items().stream().map(Event::id).toList();
 		Set<String> attendingIds = viewer != null ? eventService.attendingEventIds(viewer, ids) : Set.of();
@@ -112,7 +113,8 @@ class EventContractController {
 			attendees, event.cover(), event.streamUrl(), event.location(), eventService.hasEnded(event), attending,
 			event.recurrence().name(), event.seriesId(),
 			recurrenceService.nextOccurrenceDate(event).map(java.time.LocalDate::toString).orElse(null),
-			event.createdBy().equals(viewerId));
+			event.createdBy().equals(viewerId),
+			event.place() == null ? null : event.place().city(), event.place() == null ? null : event.place().state());
 	}
 
 	@GetMapping("/{eventId}")
@@ -135,7 +137,7 @@ class EventContractController {
 			() -> {
 				Event e = eventService.create(request.title(), request.date(), request.time(), request.format(),
 					request.host(), request.cover(), request.streamUrl(), request.location(), request.recurrence(),
-					user.id().value());
+					request.city(), request.state(), user.id().value());
 				return new CommandResponse(201, toView(e, false, user.id().value()));
 			});
 	}
@@ -193,11 +195,11 @@ class EventContractController {
 
 	record EventView(String id, String title, String date, String time, String format, String host, int attendees,
 			String cover, String streamUrl, String location, boolean expired, boolean attending, String recurrence,
-			String seriesId, String nextOccurrenceDate, boolean canManageRecurrence) {
+			String seriesId, String nextOccurrenceDate, boolean canManageRecurrence, String city, String state) {
 	}
 
 	record CreateEventRequest(String title, String date, String time, String format, String host, String cover,
-			String streamUrl, String location, String recurrence) {
+			String streamUrl, String location, String recurrence, String city, String state) {
 	}
 
 	record RecurrenceRequest(String recurrence) {

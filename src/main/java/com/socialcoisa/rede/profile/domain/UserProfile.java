@@ -3,6 +3,8 @@ package com.socialcoisa.rede.profile.domain;
 import java.time.Instant;
 import java.util.List;
 
+import com.socialcoisa.rede.shared.geo.CityState;
+
 public class UserProfile {
 
 	private final String id;
@@ -29,6 +31,10 @@ public class UserProfile {
 	private String statusIcon;
 	private String company;
 	private String location;
+	/** Cidade + UF estruturados (comunidades locais); separado do `location` livre, que continua. */
+	private CityState place;
+	/** Mostrar a cidade no perfil publico? Nasce false: lugar e dado pessoal, so aparece por opcao. */
+	private boolean showCity;
 	private String avatar;
 	private String banner;
 	/** Emblema (PNG pequeno) que aparece ao lado do nome; URL da midia, como avatar e banner. */
@@ -144,6 +150,36 @@ public class UserProfile {
 
 	public boolean showRanking() {
 		return showRanking;
+	}
+
+	/** Hidrata cidade/UF e a preferencia de exibir (colunas da V217). */
+	public void hydratePlace(CityState place, boolean showCity) {
+		this.place = place;
+		this.showCity = showCity;
+	}
+
+	/** Cidade/UF ja validados pelo servico; null limpa. */
+	public void updatePlace(CityState place, Instant now) {
+		this.place = place;
+		this.updatedAt = now;
+	}
+
+	public void setShowCity(boolean showCity, Instant now) {
+		this.showCity = showCity;
+		this.updatedAt = now;
+	}
+
+	public CityState place() {
+		return place;
+	}
+
+	public boolean showCity() {
+		return showCity;
+	}
+
+	/** O lugar que terceiros podem ver: so quando a pessoa optou por mostrar. */
+	public CityState publicPlace() {
+		return showCity ? place : null;
 	}
 
 	public void update(String name, String headline, String company, String location, String avatar, String banner,
@@ -306,6 +342,8 @@ public class UserProfile {
 		this.headline = null;
 		this.company = null;
 		this.location = null;
+		this.place = null;
+		this.showCity = false;
 		this.avatar = null;
 		this.banner = null;
 		this.bio = null;

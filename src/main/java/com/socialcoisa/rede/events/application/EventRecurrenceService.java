@@ -128,6 +128,8 @@ public class EventRecurrenceService {
 			return false;
 		}
 		next.changeRecurrence(event.recurrence(), event.seriesId());
+		// A proxima ocorrencia acontece no mesmo lugar: sem isto ela sumia do filtro por cidade.
+		next.placeAt(event.place());
 		repository.save(next);
 		notifyAttendees(event, next, nextDate);
 		return true;

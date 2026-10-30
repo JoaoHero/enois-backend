@@ -35,4 +35,13 @@ interface SpringDataEventJpaRepository extends JpaRepository<EventJpaEntity, Str
 	@Query("UPDATE EventJpaEntity e SET e.recurrence = :recurrence WHERE e.seriesId = :seriesId")
 	int updateSeriesRecurrence(@Param("seriesId") String seriesId, @Param("recurrence") String recurrence);
 
+	// In-person events by place: online events never match, even with a stale city on the row.
+	@Query("SELECT e FROM EventJpaEntity e WHERE e.state = :state AND (:cityKey IS NULL OR e.cityKey = :cityKey) "
+			+ "AND UPPER(e.format) <> 'ONLINE' AND (:format IS NULL OR e.format = :format) "
+			+ "AND (:before IS NULL OR e.createdAt < :before) "
+			+ "AND (:recurringOnly = false OR e.recurrence <> 'NONE') ORDER BY e.createdAt DESC")
+	List<EventJpaEntity> findByPlace(@Param("state") String state, @Param("cityKey") String cityKey,
+			@Param("format") String format, @Param("before") Instant before,
+			@Param("recurringOnly") boolean recurringOnly, Pageable pageable);
+
 }

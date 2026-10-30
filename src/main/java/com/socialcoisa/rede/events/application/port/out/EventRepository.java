@@ -12,7 +12,9 @@ public interface EventRepository {
 
 	Optional<Event> findById(String id);
 
-	List<Event> findAll(String format, java.time.Instant before, boolean recurringOnly, int limit);
+	/** `state` nulo desliga o filtro de lugar; com `state`, so eventos nao-online daquela UF/cidade. */
+	List<Event> findAll(String format, String state, String cityKey, java.time.Instant before, boolean recurringOnly,
+			int limit);
 
 	/** Every event whose series still repeats (recurrence other than NONE). */
 	List<Event> findRecurring();

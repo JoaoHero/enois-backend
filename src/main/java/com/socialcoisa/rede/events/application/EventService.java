@@ -15,6 +15,7 @@ import com.socialcoisa.rede.events.application.port.out.EventRepository;
 import com.socialcoisa.rede.events.domain.Event;
 import com.socialcoisa.rede.events.domain.EventAttendee;
 import com.socialcoisa.rede.events.domain.EventRecurrence;
+import com.socialcoisa.rede.shared.geo.CityState;
 import com.socialcoisa.rede.shared.web.ApiException;
 import com.socialcoisa.rede.shared.web.TextFieldLimit;
 
@@ -45,7 +46,7 @@ public class EventService {
 
 	@Transactional
 	public Event create(String title, String date, String time, String format, String host, String cover,
-			String streamUrl, String location, String recurrence, String userId) {
+			String streamUrl, String location, String recurrence, String city, String state, String userId) {
 		// Os mesmos tetos das colunas (`events.title varchar(255)`...): sem esta checagem o banco
 		// recusava a gravacao com "Data too long" e a pessoa recebia 409 "Operacao conflita com o
 		// estado atual dos dados" — que nao diz qual campo passou do limite.
@@ -58,6 +59,12 @@ public class EventService {
 		Event event = Event.create(id, title, date, time, format, host, cover, httpsOrNull(streamUrl), location,
 			userId, clock.instant());
 		requireRealisticSchedule(event);
+		CityState place = CityState.of(city, state);
+		if (place != null && "ONLINE".equalsIgnoreCase(format == null ? "" : format.trim())) {
+			throw new ApiException(400, "EVENT_CITY_NOT_IN_PERSON",
+				"Cidade e estado so valem para evento presencial ou hibrido.");
+		}
+		event.placeAt(place);
 		EventRecurrence parsed = parseRecurrence(recurrence);
 		if (parsed != EventRecurrence.NONE) {
 			requireScheduledTime(event);
@@ -203,9 +210,20 @@ public class EventService {
 	 * O cursor sai da pagina que veio do banco: filtrar depois de paginar sem isso faria a lista
 	 * achar que acabou.
 	 */
-	public EventPage list(String format, java.time.Instant before, int limit, boolean includePast,
-			boolean recurringOnly) {
-		List<Event> fetched = repository.findAll(format, before, recurringOnly, limit);
+	public EventPage list(String format, String city, String state, java.time.Instant before, int limit,
+			boolean includePast, boolean recurringOnly) {
+		// Filtro por lugar (so encontros presenciais/hibridos): `state` sozinho filtra a UF; `city`
+		// exige `state`. A cidade compara sem acento e sem caixa.
+		String uf = null;
+		String cityKey = null;
+		if (StringUtils.hasText(city)) {
+			CityState place = CityState.of(city, state);
+			uf = place.state();
+			cityKey = place.cityKey();
+		} else if (StringUtils.hasText(state)) {
+			uf = CityState.requireState(state);
+		}
+		List<Event> fetched = repository.findAll(format, uf, cityKey, before, recurringOnly, limit);
 		List<Event> visible = includePast ? fetched : fetched.stream().filter(event -> !hasEnded(event)).toList();
 		// Evento de conta banida sai da vitrine (o conteúdo dela já está sendo limpo).
 		visible = visible.stream()
