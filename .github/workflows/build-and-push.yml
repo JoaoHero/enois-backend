@@ -207,6 +207,11 @@ jobs:
           IMAGEKIT_URL_ENDPOINT: ${{ secrets.IMAGEKIT_URL_ENDPOINT }}
           IMAGEKIT_PUBLIC_KEY: ${{ secrets.IMAGEKIT_PUBLIC_KEY }}
           IMAGEKIT_PRIVATE_KEY: ${{ secrets.IMAGEKIT_PRIVATE_KEY }}
+          # Busca de GIF no seletor e triagem por LLM (denuncias/quarentena): sem chave o backend
+          # responde "sem provedor configurado" e a IA fica indisponível — a chave existe como
+          # secret, mas não era injetada no container.
+          REDE_GIFS_GIPHY_KEY: ${{ secrets.REDE_GIFS_GIPHY_KEY }}
+          MODERATION_LLM_API_KEY: ${{ secrets.MODERATION_LLM_API_KEY }}
           PANIC_MODE: ${{ secrets.PANIC_MODE }}
           # Storage da midia na QA. Sem estas variaveis o app sobe em `imagekit` (o default) e o
           # S3StorageConfig nem e criado — o endpoint de upload responde 503 "desativado" mesmo
@@ -288,6 +293,8 @@ jobs:
               "IMAGEKIT_URL_ENDPOINT=${IMAGEKIT_URL_ENDPOINT}",
               "IMAGEKIT_PUBLIC_KEY=${IMAGEKIT_PUBLIC_KEY}",
               "IMAGEKIT_PRIVATE_KEY=${IMAGEKIT_PRIVATE_KEY}",
+              "REDE_GIFS_GIPHY_KEY=${REDE_GIFS_GIPHY_KEY}",
+              "MODERATION_LLM_API_KEY=${MODERATION_LLM_API_KEY}",
               "REDE_AUTH_SIGNUP_ENABLED=true",
               "SIGNUP_CAPTCHA_ENABLED=true",
               "REDE_MEDIA_STORAGE=${REDE_MEDIA_STORAGE}",
@@ -432,6 +439,11 @@ jobs:
           IMAGEKIT_URL_ENDPOINT: ${{ secrets.IMAGEKIT_URL_ENDPOINT }}
           IMAGEKIT_PUBLIC_KEY: ${{ secrets.IMAGEKIT_PUBLIC_KEY }}
           IMAGEKIT_PRIVATE_KEY: ${{ secrets.IMAGEKIT_PRIVATE_KEY }}
+          # Busca de GIF no seletor e triagem por LLM (denuncias/quarentena): sem chave o backend
+          # responde "sem provedor configurado" e a IA fica indisponível — a chave existe como
+          # secret, mas não era injetada no container.
+          REDE_GIFS_GIPHY_KEY: ${{ secrets.REDE_GIFS_GIPHY_KEY }}
+          MODERATION_LLM_API_KEY: ${{ secrets.MODERATION_LLM_API_KEY }}
         run: |
           set -euo pipefail
           AUTH=(-H "X-API-Key: ${PORTAINER_API_KEY}" -H "Referer: ${PORTAINER_BASE_URL}")
@@ -517,6 +529,8 @@ jobs:
                 IMAGEKIT_URL_ENDPOINT: "${IMAGEKIT_URL_ENDPOINT}"
                 IMAGEKIT_PUBLIC_KEY: "${IMAGEKIT_PUBLIC_KEY}"
                 IMAGEKIT_PRIVATE_KEY: "${IMAGEKIT_PRIVATE_KEY}"
+                REDE_GIFS_GIPHY_KEY: "${REDE_GIFS_GIPHY_KEY}"
+                MODERATION_LLM_API_KEY: "${MODERATION_LLM_API_KEY}"
           EOF
 
           echo "==> Montar payload JSON (python escapa o YAML certo pro body)"
