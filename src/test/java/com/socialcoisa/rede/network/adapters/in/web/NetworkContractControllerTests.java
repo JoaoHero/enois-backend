@@ -230,6 +230,44 @@ class NetworkContractControllerTests {
 	}
 
 	@Test
+	void requestsCarryTheOtherSideAndHideBlockedPeople() throws Exception {
+		var me = auth.authenticate("net_req_me_" + System.nanoTime());
+		var asker = auth.authenticate("net_req_asker_" + System.nanoTime());
+		var asked = auth.authenticate("net_req_asked_" + System.nanoTime());
+		var blocked = auth.authenticate("net_req_blocked_" + System.nanoTime());
+
+		requestConnection(asker, me);
+		requestConnection(me, asked);
+		requestConnection(blocked, me);
+		mockMvc.perform(post("/network/blocks/{target}", blocked.userId())
+				.header("X-Session-Token", me.token())
+				.header("Idempotency-Key", "net-req-block-" + me.userId()))
+			.andExpect(status().isCreated());
+
+		mockMvc.perform(get("/network/requests").header("X-Session-Token", me.token()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items.length()").value(2))
+			// Newest first: the request I sent came after the one I received.
+			.andExpect(jsonPath("$.items[0].direction").value("OUTGOING"))
+			.andExpect(jsonPath("$.items[0].peer.id").value(asked.userId()))
+			.andExpect(jsonPath("$.items[0].peer.username").isNotEmpty())
+			.andExpect(jsonPath("$.items[1].direction").value("INCOMING"))
+			.andExpect(jsonPath("$.items[1].peer.id").value(asker.userId()));
+
+		// The badge counts only what I can answer: not what I sent, not a blocked person.
+		mockMvc.perform(get("/network/summary").header("X-Session-Token", me.token()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.pendingRequests").value(1));
+	}
+
+	private void requestConnection(TestAuthHelper.AuthSession from, TestAuthHelper.AuthSession to) throws Exception {
+		mockMvc.perform(post("/network/connections/{target}", to.userId())
+				.header("X-Session-Token", from.token())
+				.header("Idempotency-Key", "net-req-" + from.userId() + "-" + to.userId()))
+			.andExpect(status().isAccepted());
+	}
+
+	@Test
 	void replaysIdempotentConnectionRequest() throws Exception {
 		var targetSession = auth.authenticate("net_idem_target_" + System.nanoTime());
 		var session = auth.authenticate("net_idem_user");
