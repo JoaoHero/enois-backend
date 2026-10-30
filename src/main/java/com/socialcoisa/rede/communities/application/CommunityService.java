@@ -27,10 +27,13 @@ public class CommunityService {
 	private final com.socialcoisa.rede.shared.sanctions.SanctionGateReader sanctionGate;
 	private final com.socialcoisa.rede.shared.security.SuspiciousText suspiciousText;
 	private final Clock clock;
+	private final com.socialcoisa.rede.coin.application.CoinService coins;
 
 	public CommunityService(CommunityRepository repository, PostRepository postRepository,
 			com.socialcoisa.rede.shared.sanctions.SanctionGateReader sanctionGate,
-			com.socialcoisa.rede.shared.security.SuspiciousText suspiciousText, Clock clock) {
+			com.socialcoisa.rede.shared.security.SuspiciousText suspiciousText, Clock clock,
+			com.socialcoisa.rede.coin.application.CoinService coins) {
+		this.coins = coins;
 		this.repository = repository;
 		this.postRepository = postRepository;
 		this.sanctionGate = sanctionGate;
@@ -97,6 +100,7 @@ public class CommunityService {
 		}
 		CommunityMember member = CommunityMember.join(communityId, userId, MemberRole.MEMBER, clock.instant());
 		repository.saveMember(member);
+		coins.recordPresence(userId);
 		return member;
 	}
 

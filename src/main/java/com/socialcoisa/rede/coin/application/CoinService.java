@@ -18,11 +18,19 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
 import com.socialcoisa.rede.coin.application.port.out.CoinLedgerRepository;
+import com.socialcoisa.rede.coin.application.port.out.UserStreakRepository;
 import com.socialcoisa.rede.coin.domain.CoinAccount;
 import com.socialcoisa.rede.coin.domain.CoinEntry;
 import com.socialcoisa.rede.coin.domain.CoinRate;
 import com.socialcoisa.rede.coin.domain.CoinEntryPage;
+import com.socialcoisa.rede.coin.domain.UserStreak;
 import com.socialcoisa.rede.shared.security.ActionThrottle;
 import com.socialcoisa.rede.shared.web.ApiException;
 
@@ -76,10 +84,13 @@ public class CoinService {
 	private final int transfersPerMinute;
 	private final int transfersPerHour;
 	private final Clock clock;
+	private final UserStreakRepository streaks;
+	private final TransactionTemplate presenceTransaction;
 
 	public CoinService(CoinLedgerRepository ledger, CoinRateService rateService,
 			com.socialcoisa.rede.shared.security.SecretCipher cipher, ActionThrottle throttle,
-			TransferDedupe dedupe, Clock clock,
+			TransferDedupe dedupe, Clock clock, UserStreakRepository streaks,
+			PlatformTransactionManager transactionManager,
 			@Value("${rede.coin.transfer-per-minute:10}") int transfersPerMinute,
 			@Value("${rede.coin.transfer-per-hour:60}") int transfersPerHour) {
 		this.ledger = ledger;
@@ -88,12 +99,15 @@ public class CoinService {
 		this.throttle = throttle;
 		this.dedupe = dedupe;
 		this.clock = clock;
+		this.streaks = streaks;
+		this.presenceTransaction = new TransactionTemplate(transactionManager);
+		this.presenceTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
 		this.transfersPerMinute = Math.max(1, Math.min(transfersPerMinute, 1_000));
 		this.transfersPerHour = Math.max(this.transfersPerMinute, Math.min(transfersPerHour, 10_000));
 	}
 
 	public record Wallet(long balance, String chave, long escala, long cotacaoBrlCents, long cotacaoBrlMicros,
-			List<CoinEntry> entries) {
+			List<CoinEntry> entries, StreakView streak) {
 	}
 
 	/** Conta da moeda: cria a conta, executa o airdrop do genesis e marca a presença do dia. */
@@ -106,7 +120,7 @@ public class CoinService {
 			.map(e -> e.withMessage(decifrar(e.message())))
 			.toList();
 		return new Wallet(ensureAccount(accountId).balance(), username, SCALE,
-			rateService.currentBrlCents(), rateService.currentBrlMicros(), extrato);
+			rateService.currentBrlCents(), rateService.currentBrlMicros(), extrato, streak(accountId));
 	}
 
 	/**
@@ -123,7 +137,7 @@ public class CoinService {
 				.map(e -> e.withMessage(decifrar(e.message())))
 				.toList();
 		return new Wallet(balance, username, SCALE, rateService.currentBrlCents(),
-			rateService.currentBrlMicros(), entries);
+			rateService.currentBrlMicros(), entries, null);
 	}
 
 	/**
@@ -142,37 +156,99 @@ public class CoinService {
 		return Math.max(1L, scaled);
 	}
 
+	/** What the person sees about their streak; `lastFrozenDay` is null when no freeze was ever used. */
+	public record StreakView(int currentDays, int longestDays, boolean todayDone, int freezesAvailable,
+			LocalDate lastFrozenDay) {
+	}
+
+	/** Days of presence history read on the lazy first touch of a streak (see V212). */
+	private static final int STREAK_BOOTSTRAP_DAYS = 60;
+
 	/**
-	 * Presença diária (plano C2): +5 por dia; a cada 7 dias consecutivos de presença,
-	 * +25 de bônus. Idempotente por conta+dia — abrir a carteira mil vezes não duplica.
-	 * Os valores são convertidos pela cotação vigente (mesmo valor em reais).
+	 * A meaningful action happened (post, comment, reaction, daily game, message, joining a
+	 * community or group): it counts as today's presence. Called by the application services AFTER
+	 * the action; runs after the caller's commit, in its own transaction, and never throws. The
+	 * presence is a side effect, never a reason for the action to fail (or to wait on the treasury
+	 * row the caller's transaction may be holding).
+	 */
+	public void recordPresence(String userId) {
+		if (userId == null || userId.isBlank()) {
+			return;
+		}
+		if (TransactionSynchronizationManager.isSynchronizationActive()) {
+			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+				@Override
+				public void afterCommit() {
+					recordPresenceNow(userId);
+				}
+			});
+			return;
+		}
+		recordPresenceNow(userId);
+	}
+
+	private void recordPresenceNow(String userId) {
+		try {
+			// Fast path: already counted today is one primary-key read, no transaction, no ledger.
+			var known = streaks.find(userId);
+			if (known.isPresent() && known.get().doneOn(UserStreak.today(clock))) {
+				return;
+			}
+			presenceTransaction.executeWithoutResult(status -> ensureDailyPresence(userId));
+		} catch (RuntimeException e) {
+			LOG.warn("presence_record_failed error={}", e.getClass().getSimpleName());
+		}
+	}
+
+	/** Current streak as of today (pending freeze or break applied, nothing written). */
+	@Transactional(readOnly = true)
+	public StreakView streak(String userId) {
+		LocalDate today = UserStreak.today(clock);
+		UserStreak s = streaks.find(userId).orElseGet(() -> bootstrapStreak(userId, today)).settle(today);
+		return new StreakView(s.currentDays(), s.longestDays(), s.doneOn(today), s.freezesAvailable(today),
+			s.lastFrozenDay());
+	}
+
+	/**
+	 * Presença diária (plano C2): +5 por dia; com 7 ou mais dias seguidos de sequência, +25 de
+	 * bônus. Idempotente por conta+dia (fuso de São Paulo). A sequência fica em `user_streaks`
+	 * (com o congelamento semanal); os valores são convertidos pela cotação vigente.
 	 */
 	private void ensureDailyPresence(String accountId) {
-		LocalDate today = LocalDate.now(clock);
+		LocalDate today = UserStreak.today(clock);
+		UserStreak before = streaks.find(accountId).orElseGet(() -> bootstrapStreak(accountId, today));
+		if (before.doneOn(today)) {
+			return;
+		}
+		UserStreak after = before.touch(today);
+		streaks.save(after);
 		String ref = "presenca:" + accountId + ":" + today;
 		if (ledger.existsByKindAndRefId(CoinEntry.Kind.REWARD, ref)) {
 			return;
 		}
 		Instant now = Instant.now(clock);
-		// Contagem de presenças na janela de 7 dias: o 7º dia consecutivo ganha o bônus.
-		long dias = 1; // hoje conta
-		for (int i = 1; i <= 7; i++) {
-			String prevRef = "presenca:" + accountId + ":" + today.minusDays(i);
-			if (!ledger.existsByKindAndRefId(CoinEntry.Kind.REWARD, prevRef)) {
-				break;
-			}
-			dias++;
-		}
 		long amount = scaledReward(DAILY_PRESENCE);
 		String message = "Presença diária";
-		if (dias >= 7) {
+		if (after.currentDays() >= 7) {
 			amount += scaledReward(STREAK_BONUS);
-			message = "Presença diária (bônus de " + dias + " dias seguidos)";
+			message = "Presença diária (bônus de " + after.currentDays() + " dias seguidos)";
 		}
 		ensureTreasury();
 		grant(TREASURY_ACCOUNT, -amount, CoinEntry.Kind.GENESIS_TREASURY, "presenca-tesouraria:" + ref,
 			message, now);
 		grant(accountId, amount, CoinEntry.Kind.REWARD, ref, message, now);
+	}
+
+	/** Streak of someone without a `user_streaks` row yet: rebuilt from recent presence rewards. */
+	private UserStreak bootstrapStreak(String accountId, LocalDate today) {
+		String prefix = "presenca:" + accountId + ":";
+		LocalDate oldest = today.minusDays(STREAK_BOOTSTRAP_DAYS);
+		List<LocalDate> days = ledger.refIdsOf(accountId, CoinEntry.Kind.REWARD).stream()
+			.filter(ref -> ref.startsWith(prefix))
+			.map(ref -> LocalDate.parse(ref.substring(prefix.length())))
+			.filter(day -> !day.isBefore(oldest) && !day.isAfter(today))
+			.toList();
+		return UserStreak.fromPresenceDays(accountId, days);
 	}
 
 	/** Airdrop idempotente: 100 faíscas da tesouraria, uma vez por conta. Sem exceção por username. */

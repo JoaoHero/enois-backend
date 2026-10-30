@@ -717,3 +717,25 @@ sem alterar o deslocamento entre páginas. Uma última página cheia retorna `ha
 Este endpoint só lê os lançamentos existentes: não cria conta nem credita presença ou
 distribuição inicial. O contrato de `GET /carteira` permanece igual. Sem migração:
 as colunas e o índice por `account_id, created_at` já existem no ledger.
+
+## Sequência de presença
+
+| Método | Rota | Descrição | Autenticação |
+|---|---|---|---|
+| GET | `/api/me/streak` | Sequência de presença da própria conta | Sim |
+
+Resposta:
+
+```json
+{ "currentDays": 4, "longestDays": 9, "todayDone": true, "freezesAvailable": 0, "lastFrozenDay": "2026-10-28" }
+```
+
+- `currentDays` (int): dias seguidos até hoje; um ontem faltado e coberto pelo congelamento já aparece
+  aplicado, e uma sequência quebrada aparece como `0`.
+- `longestDays` (int): maior sequência registrada.
+- `todayDone` (boolean): a presença de hoje (fuso `America/Sao_Paulo`) já foi contada.
+- `freezesAvailable` (int, 0 ou 1): congelamento ainda disponível na semana ISO atual.
+- `lastFrozenDay` (`YYYY-MM-DD` ou `null`): último dia salvo pelo congelamento.
+
+`GET /api/carteira` traz o mesmo objeto no campo `streak` (aditivo). Ler a sequência não credita
+nada; a presença é contada pelas ações descritas em `docs/COIN_ECONOMY.md`.

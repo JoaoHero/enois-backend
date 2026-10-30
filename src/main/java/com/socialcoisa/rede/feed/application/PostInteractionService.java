@@ -57,6 +57,7 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 	private final com.socialcoisa.rede.shared.sanctions.SanctionGate sanctionGate;
 	private final com.socialcoisa.rede.shared.risk.RiskEngine riskEngine;
 	private final com.socialcoisa.rede.shared.age.AgeGate agePolicy;
+	private final com.socialcoisa.rede.coin.application.CoinService coins;
 	private final NewAccountCooldown newAccountCooldown;
 	/** Rate limit por usuário e dedup de conteúdo (PR #28). */
 	private final UserRateLimiter userRateLimiter;
@@ -74,6 +75,7 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 			com.socialcoisa.rede.media.application.port.in.ValidateMediaOwnershipUseCase validateMediaOwnership,
 			com.socialcoisa.rede.shared.sanctions.SanctionGate sanctionGate,
 			com.socialcoisa.rede.shared.risk.RiskEngine riskEngine,
+			com.socialcoisa.rede.coin.application.CoinService coins,
 			NewAccountCooldown newAccountCooldown,
 			UserRateLimiter userRateLimiter,
 			ContentDuplicationGuard duplicationGuard,
@@ -93,6 +95,7 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 		this.sanctionGate = sanctionGate;
 		this.riskEngine = riskEngine;
 		this.agePolicy = agePolicy;
+		this.coins = coins;
 		this.newAccountCooldown = newAccountCooldown;
 		this.userRateLimiter = userRateLimiter;
 		this.duplicationGuard = duplicationGuard;
@@ -123,6 +126,7 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 			+ "\",\"commentId\":\"" + saved.id() + "\",\"authorId\":\"" + command.authorId().value() + "\"}");
 		notifyCommentReply(parentCommentId, post, command.authorId().value());
 		notifyMentions(command.mentionedUserIds(), command.authorId().value(), post.id().value());
+		coins.recordPresence(command.authorId().value());
 		var profile = userProfileRepository.findById(command.authorId().value()).orElse(null);
 		return CommentView.from(saved,
 			profile != null ? profile.displayWithNickname() : null,
@@ -245,6 +249,7 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 				postRepository.save(post);
 				outboxEventRepository.append("PostReacted", post.id().value(), "{\"postId\":\"" + post.id().value()
 					+ "\",\"authorId\":\"" + command.userId().value() + "\"}");
+				coins.recordPresence(command.userId().value());
 			}
 			case REMOVED -> {
 				post.removeReaction();
