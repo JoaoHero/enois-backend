@@ -172,10 +172,10 @@ class NetworkContractController {
 	ConnectionStatusView status(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String targetUserId) {
 		CurrentUser user = currentUserResolver.resolve(sessionToken);
-		String status = networkService.getConnectionStatus(user.id().value(), targetUserId);
+		var state = networkService.getConnectionState(user.id().value(), targetUserId);
 		boolean blocked = blockService.isBlockedBy(user.id().value(), targetUserId);
 		boolean muted = muteService.isMuted(user.id().value(), targetUserId);
-		return new ConnectionStatusView(targetUserId, status, blocked, muted);
+		return new ConnectionStatusView(targetUserId, state.status(), state.requestedByMe(), blocked, muted);
 	}
 
 	/** Bloqueia um usuario: ele some do feed, dos comentarios, das notificacoes e da busca. */
@@ -302,6 +302,7 @@ class NetworkContractController {
 	record ConnectionRequestView(String id, String fromUserId, String toUserId, String status, String createdAt) {
 	}
 
-	record ConnectionStatusView(String targetUserId, String status, boolean blocked, boolean muted) {
+	record ConnectionStatusView(String targetUserId, String status, boolean requestedByMe, boolean blocked,
+			boolean muted) {
 	}
 }

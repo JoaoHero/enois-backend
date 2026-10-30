@@ -569,7 +569,7 @@ Implementa: `ManageProfileExtensionUseCase`
 | `notifyConnectionRequest(String requesterId, String receiverId)` | Envia notificação de solicitação |
 | `acceptConnection(String userId, String requesterId)` | Aceita conexão pendente |
 | `removeConnection(String userId, String targetUserId)` | Remove/soft-delete conexão |
-| `getConnectionStatus(String userId, String targetUserId)` | Retorna status (PENDING, ACCEPTED, BLOCKED, NONE) |
+| `getConnectionState(String userId, String targetUserId)` | Retorna status (PENDING, ACCEPTED, REMOVED, BLOCKED, NONE) e `requestedByMe` (pedido pendente enviado por quem consulta) |
 | `getConnections(String userId)` | Conexões aceitas |
 | `getPendingRequests(String userId)` | Solicitações pendentes |
 | `countConnections(String userId)` | Conta conexões aceitas |
