@@ -978,6 +978,20 @@ inválidas são rejeitadas integralmente. A operação exige autenticação e ch
 | `approve(...)` | POST /api/admin/reports/{reportId}/approve |
 | `dismiss(...)` | POST /api/admin/reports/{reportId}/dismiss |
 
+### SanctionService (fila de penalidades do admin)
+
+**Arquivo**: `src/main/java/com/socialcoisa/rede/moderation/application/SanctionService.java`
+
+Correção manual de penalidades aplicadas erradas: o admin lista quem está penalizado, remove a
+sanção (conta liberada, denúncia de origem descartada) ou corrige o tipo/motivo sem remover.
+Rebaixar um ban libera o login de volta — o conteúdo purgado pelo ban não volta.
+
+| Função | Rota |
+|---|---|
+| `adminSanctions(status, limit)` | GET /api/admin/sanctions?status=ACTIVE\|REMOVED |
+| `revokeSanction(adminId, sanctionId, reason)` | POST /api/admin/sanctions/{sanctionId}/revoke |
+| `editSanction(adminId, sanctionId, type, reason)` | POST /api/admin/sanctions/{sanctionId}/edit |
+
 ### ContentQuarantineReviewService
 
 **Arquivo**: `src/main/java/com/socialcoisa/rede/moderation/application/ContentQuarantineReviewService.java`
