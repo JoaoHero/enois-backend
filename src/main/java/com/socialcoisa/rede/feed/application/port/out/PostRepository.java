@@ -33,6 +33,12 @@ public interface PostRepository {
 	 */
 	List<Post> findByMediaId(String mediaId);
 
+	/**
+	 * Posts ativos criados desde um instante cujo texto publica algum link. É o que a varredura da
+	 * barreira de links lê — sem este recorte, varrer tudo a cada rodada custaria o banco inteiro.
+	 */
+	List<Post> findActiveWithLinksSince(Instant since, int limit);
+
 	/** "Para você"/Seguindo: o que as identidades sociais assinaram (BUSINESS nunca entra). */
 	List<Post> findActiveByAuthors(Set<UserId> authorIds, Instant before, int limit);
 

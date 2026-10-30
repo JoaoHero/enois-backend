@@ -978,6 +978,19 @@ inválidas são rejeitadas integralmente. A operação exige autenticação e ch
 | `approve(...)` | POST /api/admin/reports/{reportId}/approve |
 | `dismiss(...)` | POST /api/admin/reports/{reportId}/dismiss |
 
+### ContentQuarantineReviewService
+
+**Arquivo**: `src/main/java/com/socialcoisa/rede/moderation/application/ContentQuarantineReviewService.java`
+
+Fila de revisão do que a barreira de conteúdo automatizado tirou do ar. Liberar devolve o post ao
+ar; remover apaga o post. Nenhuma das duas pune a conta. Ver `docs/MODERACAO-CONTEUDO.md`.
+
+| Função | Rota |
+|---|---|
+| `pending(limit)` | GET /api/moderation/quarantine |
+| `release(reviewerId, postId)` | POST /api/moderation/quarantine/{postId}/release |
+| `remove(reviewerId, postId)` | POST /api/moderation/quarantine/{postId}/remove |
+
 ---
 
 ## 16. Idempotency

@@ -116,6 +116,10 @@ class LinkedInShareOutboxEventHandlerTests {
 		}
 
 		@Override
+		public List<Post> findActiveWithLinksSince(java.time.Instant since, int limit) {
+			return java.util.List.of();
+		}
+
 		public List<Post> findByMediaId(String mediaId) {
 			return List.of();
 		}
