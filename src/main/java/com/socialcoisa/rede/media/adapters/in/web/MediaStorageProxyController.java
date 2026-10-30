@@ -43,14 +43,17 @@ class MediaStorageProxyController {
 	private final MediaAssetRepository assets;
 	private final CurrentUserResolver currentUserResolver;
 	private final com.socialcoisa.rede.media.application.MediaMetadataSanitizer sanitizer;
+	private final com.socialcoisa.rede.media.application.MediaImageModerationService imageModeration;
 
 	MediaStorageProxyController(ObjectProvider<MediaObjectStore> storeProvider, MediaAssetRepository assets,
 			CurrentUserResolver currentUserResolver,
-			com.socialcoisa.rede.media.application.MediaMetadataSanitizer sanitizer) {
+			com.socialcoisa.rede.media.application.MediaMetadataSanitizer sanitizer,
+			com.socialcoisa.rede.media.application.MediaImageModerationService imageModeration) {
 		this.storeProvider = storeProvider;
 		this.assets = assets;
 		this.currentUserResolver = currentUserResolver;
 		this.sanitizer = sanitizer;
+		this.imageModeration = imageModeration;
 	}
 
 	private MediaObjectStore store() {
@@ -153,6 +156,7 @@ class MediaStorageProxyController {
 				byte[] raw = request.getInputStream().readAllBytes();
 				// LIMPEZA NA ESCRITA: EXIF/GPS/XMP/IPTC não chegam ao bucket.
 				byte[] clean = sanitizer.sanitize(raw, mime, objectKey);
+				imageModeration.verifyBeforeStorage(clean, mime);
 				store().write(objectKey, mime, clean.length, new java.io.ByteArrayInputStream(clean));
 			}
 		}
