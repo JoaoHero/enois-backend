@@ -89,6 +89,27 @@ Resposta (signup e login):
 | GET | `/api/recommendations/received/{userId}` | Recomendações recebidas | Sim |
 | GET | `/api/recommendations/given/{userId}` | Recomendações dadas | Sim |
 
+### Profile garden
+
+`GET /api/users/{username}`, `GET /api/users/by-id/{userId}` and `GET /api/me` carry the reputation
+garden next to `reputation`, computed on read in the same pass as the counts (never stored):
+
+```json
+"gardenStyle": "garden-cerrado",
+"garden": { "trajectory": 2, "relations": 1, "contribution": 0, "tenure": 3, "health": 2 }
+```
+
+- `trajectory`, `relations`, `contribution` and `tenure` are stages 0..3 from the fraction of each
+  reputation component's cap (195, 300, 420 and 120): below 10% is 0, below 35% is 1, below 70% is
+  2, otherwise 3.
+- `health` is 0..2 from the integrity penalty: none is 2, up to 150 points is 1, more is 0. It only
+  dims the garden colors.
+- Every account gets a garden, verified or not; the numeric `reputation` keeps its rule (0 without
+  a verified identity).
+- Lists and write responses (search, ranking, status and badge updates, profile edit) carry
+  `garden: null`.
+- `gardenStyle` is the equipped `GARDEN` item id, `null` for the default garden.
+
 ### PATCH /api/me/profile
 
 ```json

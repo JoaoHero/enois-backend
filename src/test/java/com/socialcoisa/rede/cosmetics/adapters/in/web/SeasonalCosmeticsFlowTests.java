@@ -315,10 +315,12 @@ class SeasonalCosmeticsFlowTests {
 
 		JsonNode me = me(user);
 		slots.forEach((item, field) -> assertThat(me.get(field).asText()).as(field).isEqualTo(item));
-		// The public profile carries the garden style.
+		// The public profile carries the garden style and the garden itself (a new account: seeds, healthy).
 		mockMvc.perform(get("/users/" + me.get("username").asText()))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.gardenStyle").value("garden-cerrado"));
+			.andExpect(jsonPath("$.gardenStyle").value("garden-cerrado"))
+			.andExpect(jsonPath("$.garden.tenure").value(0))
+			.andExpect(jsonPath("$.garden.health").value(2));
 		assertThat(me.get("badges").get(0).asText()).isEqualTo("emblema-carapuca");
 		MvcResult shop = mockMvc.perform(get("/loja").header("X-Session-Token", user.token()))
 			.andExpect(status().isOk())

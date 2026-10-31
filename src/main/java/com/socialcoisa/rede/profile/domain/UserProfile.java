@@ -28,6 +28,8 @@ public class UserProfile {
 	private String profileEffect;
 	/** Garden style item (GARDEN catalog id); null = the default garden. */
 	private String gardenStyle;
+	/** Reputation garden, computed on read with the counts (never persisted); null when not computed. */
+	private ReputationGarden garden;
 	/** Recado curto do perfil (texto ja limpo) e o icone de emblema que o acompanha. */
 	private String statusText;
 	private String statusIcon;
@@ -569,6 +571,14 @@ public class UserProfile {
 
 	public String gardenStyle() {
 		return gardenStyle;
+	}
+
+	public void setGarden(ReputationGarden garden) {
+		this.garden = garden;
+	}
+
+	public ReputationGarden garden() {
+		return garden;
 	}
 
 	/** Recado do perfil; texto e icone ja validados no service (null limpa). */
