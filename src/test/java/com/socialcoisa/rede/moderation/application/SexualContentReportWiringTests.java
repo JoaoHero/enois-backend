@@ -18,7 +18,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
-import com.socialcoisa.rede.feed.application.port.in.ModerationRemovePostUseCase;
 import com.socialcoisa.rede.identity.application.EmailService;
 import com.socialcoisa.rede.moderation.application.port.out.ReportRepository;
 import com.socialcoisa.rede.moderation.application.port.out.ReportedContentAuthorReader;
@@ -44,7 +43,7 @@ class SexualContentReportWiringTests {
 	private ReportRepository reports;
 
 	@Mock
-	private ModerationRemovePostUseCase removePost;
+	private ReportedContentRemover contentRemover;
 
 	@Mock
 	private ContentQuarantineReviewService quarantineReview;
@@ -80,7 +79,7 @@ class SexualContentReportWiringTests {
 
 	@BeforeEach
 	void setUp() {
-		service = new ModerationService(reports, removePost, quarantineReview, emailService, "", "https://enois.test",
+		service = new ModerationService(reports, contentRemover, quarantineReview, emailService, "", "https://enois.test",
 			profiles, contentAuthors, contentReader, sanctions, notifications, throttle, learning, events, 10,
 			Clock.fixed(NOW, ZoneOffset.UTC));
 		when(reports.save(any())).thenAnswer(invocation -> invocation.getArgument(0));

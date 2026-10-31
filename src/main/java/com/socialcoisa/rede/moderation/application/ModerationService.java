@@ -8,7 +8,6 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.socialcoisa.rede.feed.application.port.in.ModerationRemovePostUseCase;
 import com.socialcoisa.rede.notifications.application.NotificationService;
 import com.socialcoisa.rede.moderation.application.port.out.ReportRepository;
 import com.socialcoisa.rede.moderation.application.port.out.ReportedContentAuthorReader;
@@ -27,7 +26,7 @@ public class ModerationService {
 	static final String SYSTEM_REPORTER = "system";
 
 	private final ReportRepository reportRepository;
-	private final ModerationRemovePostUseCase moderationRemovePostUseCase;
+	private final ReportedContentRemover contentRemover;
 	private final ContentQuarantineReviewService quarantineReview;
 	private final EmailService emailService;
 	private final String supportEmail;
@@ -44,7 +43,7 @@ public class ModerationService {
 	private final int reportsPerHour;
 
 	public ModerationService(ReportRepository reportRepository,
-			ModerationRemovePostUseCase moderationRemovePostUseCase,
+			ReportedContentRemover contentRemover,
 			ContentQuarantineReviewService quarantineReview,
 			EmailService emailService,
 			@org.springframework.beans.factory.annotation.Value("${rede.support.email:}") String supportEmail,
@@ -59,7 +58,7 @@ public class ModerationService {
 			@org.springframework.beans.factory.annotation.Value("${rede.moderation.reports-per-hour:10}") int reportsPerHour,
 			Clock clock) {
 		this.reportRepository = reportRepository;
-		this.moderationRemovePostUseCase = moderationRemovePostUseCase;
+		this.contentRemover = contentRemover;
 		this.quarantineReview = quarantineReview;
 		this.emailService = emailService;
 		this.supportEmail = supportEmail;
@@ -256,16 +255,14 @@ public class ModerationService {
 		return saved;
 	}
 
-	/** Banir o autor: remove o post (quando for post), bane a conta e revoga as sessões. */
+	/** Banir o autor: remove o conteúdo denunciado (post ou comentário), bane a conta e revoga as sessões. */
 	@Transactional
 	public Report ban(String reportId, String reviewerId,
 			com.socialcoisa.rede.identity.application.port.out.AuthSessionRepository sessions) {
 		Report report = pendingReport(reportId);
 		String authorId = contentAuthors.authorOf(report.targetType().name(), report.targetId())
 			.orElseThrow(() -> new ApiException(409, "NO_AUTHOR", "Este alvo não tem autor identificável."));
-		if ("POST".equals(report.targetType().name())) {
-			moderationRemovePostUseCase.removeAsModerator(reviewerId, report.targetId(), "BAN:" + report.reason().name());
-		}
+		contentRemover.remove(report, reviewerId, "BAN");
 		report.approve(reviewerId, "BANIMENTO da conta");
 		Report saved = reportRepository.save(report);
 		String id = "sanc_" + java.util.UUID.randomUUID().toString().replace("-", "");
@@ -303,10 +300,7 @@ public class ModerationService {
 			throw new ApiException(409, "ALREADY_REVIEWED", "Denuncia ja foi revisada.");
 		}
 		report.approve(reviewerId, note);
-		if (report.targetType() == TargetType.POST) {
-			moderationRemovePostUseCase.removeAsModerator(reviewerId, report.targetId(),
-				"REPORTED:" + report.reason().name());
-		}
+		contentRemover.remove(report, reviewerId, "REPORTED");
 		Report saved = reportRepository.save(report);
 		learning.record(saved, "APPROVE", "HUMAN", reviewerId);
 		return saved;
