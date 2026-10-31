@@ -481,11 +481,20 @@ public class GetFeedService implements GetFeedUseCase, GetProfilePostsUseCase, G
 			? postRepository.findActiveByAuthors(authors, before, limit * 3)
 			: postRepository.findActiveByAuthorsExcludingTopics(authors, blocked, before, limit * 3);
 		Set<String> hiddenCommunities = communityIdsWithoutMembership(fetched, query.userId());
-		List<Post> visible = fetched.stream()
+		List<Post> filtered = fetched.stream()
 			.filter(post -> post.communityId() == null || !hiddenCommunities.contains(post.communityId()))
 			.toList();
-		// "O que quero ver" es AUMENTO DE PRIORIDAD, no filtro: los posts de los asuntos
-		// elegidos van primero, el resto sigue cronológico. Nada se elimina del feed.
+		// The page is a DATE WINDOW: the `limit` newest visible posts, and the cursor is the oldest
+		// of them (or of the raw fetch, when the filter left fewer than `limit`). The relevance boost
+		// below only reorders inside the window, so no post is skipped or repeated across pages, and
+		// a later page never holds a post newer than an earlier one (the front's "voce esta em dia"
+		// section relies on that).
+		List<Post> visible = filtered.stream().limit(limit).toList();
+		String nextCursor = filtered.size() > limit
+			? cursorCodec.encode(visible.get(visible.size() - 1).createdAt())
+			: fetched.size() == limit * 3 ? cursorCodec.encode(fetched.get(fetched.size() - 1).createdAt()) : null;
+		// "O que quero ver" is a priority boost, not a filter: inside the page, posts on the chosen
+		// topics come first and the rest stays newest first. Nothing leaves the feed.
 		Collection<String> liked = readerPreferences.likedTopics(query.userId().value());
 		if (!liked.isEmpty() && visible.size() > 1) {
 			// topic() is null for posts without a topic, and liked is immutable: contains(null) throws.
@@ -496,11 +505,6 @@ public class GetFeedService implements GetFeedUseCase, GetProfilePostsUseCase, G
 					.thenComparing(Post::createdAt, java.util.Comparator.reverseOrder()))
 				.toList();
 		}
-		visible = visible.stream().limit(limit).toList();
-		// Cursor pela pagina EXIBIDA (nao pela bruta): repetir post ou pular pedaco seria pior do que
-		// uma pagina mais curta. So ha "proxima pagina" quando a busca bruta veio saturada.
-		String nextCursor = fetched.size() == limit * 3 && !visible.isEmpty()
-			? cursorCodec.encode(visible.get(visible.size() - 1).createdAt()) : null;
 		return new FeedPage(enrich(visible, query.userId()), nextCursor);
 	}
 
