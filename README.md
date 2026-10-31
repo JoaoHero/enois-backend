@@ -537,6 +537,8 @@ delete from flyway_schema_history where version = '<versao que falhou>';    # ou
   (`users.email_verified_at`, `totp_enabled_at`, `email_otp_enabled_at`). Sem nenhum dos dois a reputação é
   **multiplicada por zero** (regra em `ReputationService`, fonte única: vale para o perfil, o ranking e a regra
   de publicar vaga) e as funcionalidades protegidas respondem `403 EMAIL_NOT_VERIFIED` no `CurrentUserResolver`.
+  O mesmo cálculo gera o jardim do perfil (`garden`, um estágio 0..3 por componente e `health` 0..2), que
+  aparece para toda conta, verificada ou não (detalhes em `docs/API.md`, "Profile garden").
 - **Segundo fator (2FA)**: `GET /auth/2fa/status` mostra o estado. Por aplicativo authenticator (TOTP RFC 6238,
   segredo cifrado com `REDE_SECURITY_ENCRYPTION_KEY`): `POST /auth/2fa/totp/setup` devolve o segredo e a URI
   `otpauth://`, `POST /auth/2fa/totp/enable` confirma um código e devolve 8 códigos de recuperação (uso único,
