@@ -323,7 +323,8 @@ Tipos de reação: `LIKE`, `LOVE`, `CONGRATS`, `INSIGHTFUL`, `CURIOUS`
 | POST | `/api/me/onboarding/skip` | Conclui sem mudar nada | Sim |
 
 `onboardingCompleted` (boolean) vem em `/auth/me` e nas respostas de login/verificação: `false`
-só para contas criadas depois da V210 que ainda não concluíram nem pularam.
+enquanto a conta ainda não concluiu nem pulou. Vale para toda conta, inclusive as anteriores à
+V210 (a V224 desfez o preenchimento que as marcava como concluídas).
 
 `starter-pack` devolve até 6 comunidades (sem as que a pessoa já participa), até 6 grupos ativos
 de entrada aberta (sem os que já participa) e até 8 pessoas (contas ativas, verificadas e adultas,
