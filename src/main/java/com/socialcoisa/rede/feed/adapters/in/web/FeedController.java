@@ -97,6 +97,7 @@ class FeedController {
 	private final com.socialcoisa.rede.feed.application.port.out.OutboxEventRepository outboxEventRepository;
 	private final com.socialcoisa.rede.feed.application.port.out.FeedSeenMarkerRepository feedSeenMarkers;
 	private final com.socialcoisa.rede.feed.application.port.in.VotePollUseCase votePoll;
+	private final com.socialcoisa.rede.feed.application.DeleteCommentService deleteComment;
 	/** Resposta do voto da enquete (PollView): o endpoint devolve o estado da enquete em JSON. */
 	private final tools.jackson.databind.ObjectMapper pollJson = new tools.jackson.databind.ObjectMapper();
 
@@ -116,7 +117,8 @@ class FeedController {
 			com.socialcoisa.rede.feed.application.port.out.OutboxEventRepository outboxEventRepository,
 			com.socialcoisa.rede.coin.application.CoinService coins,
 			com.socialcoisa.rede.feed.application.port.out.FeedSeenMarkerRepository feedSeenMarkers,
-			com.socialcoisa.rede.feed.application.port.in.VotePollUseCase votePoll) {
+			com.socialcoisa.rede.feed.application.port.in.VotePollUseCase votePoll,
+			com.socialcoisa.rede.feed.application.DeleteCommentService deleteComment) {
 		this.coins = coins;
 		this.publishPostUseCase = publishPostUseCase;
 		this.getFeedUseCase = getFeedUseCase;
@@ -145,6 +147,7 @@ class FeedController {
 		this.outboxEventRepository = outboxEventRepository;
 		this.feedSeenMarkers = feedSeenMarkers;
 		this.votePoll = votePoll;
+		this.deleteComment = deleteComment;
 	}
 
 	@PostMapping("/feed/posts")
@@ -415,21 +418,7 @@ class FeedController {
 		String hash = idempotency.hash(Map.of("commentId", commentId, "postId", postId));
 		return idempotency.execute(user.id(), "DELETE", "/api/feed/posts/{postId}/comments/{commentId}", idempotencyKey, hash,
 			() -> {
-				var comment = commentRepository.findById(commentId)
-					.orElseThrow(() -> new ApiException(404, "COMMENT_NOT_FOUND", "Comentario nao encontrado."));
-				if (!comment.authorId().equals(user.id())) {
-					throw new ApiException(403, "NOT_AUTHORIZED", "Voce nao pode deletar este comentario.");
-				}
-				boolean eraAtivo = comment.status() == com.socialcoisa.rede.feed.domain.CommentStatus.ACTIVE;
-				commentRepository.deleteById(commentId);
-				// O contador do post precisa DEVOLVER o comentário apagado — antes ele só crescia,
-				// e "comentar/apagar" inflava a interação recebida (e a credibilidade) sem limite.
-				if (eraAtivo) {
-					postRepository.findById(comment.postId()).ifPresent(post -> {
-						post.removeComment();
-						postRepository.save(post);
-					});
-				}
+				deleteComment.deleteAsAuthor(user.id(), commentId);
 				return new CommandResponse(200, Map.of("status", "COMMENT_DELETED"));
 			});
 	}

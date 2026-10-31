@@ -666,7 +666,7 @@ Query params: `q=<termo>`, `types=users,communities,jobs,events,mentors`, `limit
 |---|---|---|---|
 | POST | `/api/reports` | Reportar conteúdo | Sim |
 | GET | `/api/admin/reports` | Listar reports pendentes | Sim |
-| POST | `/api/admin/reports/{reportId}/approve` | Aprovar report (deletar alvo) | Sim |
+| POST | `/api/admin/reports/{reportId}/approve` | Aprovar report (remove o alvo quando é post ou comentário do feed) | Sim |
 | POST | `/api/admin/reports/{reportId}/dismiss` | Rejeitar report | Sim |
 
 Razões: `AI_GENERATED`, `FAKE_CONTENT`, `SCAM`, `DISCRIMINATION`, `PREJUDICE`, `HARASSMENT`, `SPAM`, `VIOLENCE`, `SEXUAL_CONTENT`, `COPYRIGHT`, `OTHER`

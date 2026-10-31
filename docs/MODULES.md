@@ -333,8 +333,8 @@ colunas, então salvar contadores nunca desfaz a escolha).
 | `accept(PostId, UserId, String commentId)` | Só o autor da dúvida; comentário ativo, da mesma dúvida e de outra pessoa. Notifica `ANSWER_ACCEPTED` e paga a recompensa de ajuda depois do commit (uma vez por dúvida; contas com menos de 7 dias não recebem) |
 | `unaccept(PostId, UserId)` | Reabre a dúvida (zera as duas colunas) |
 
-Comentário aceito apagado reabre a dúvida na mesma transação: `CommentRepository.deleteById` (autor e
-limpeza de banimento) e a purga de spam (`UserContentPurgeService`) zeram as duas colunas de quem
+Comentário aceito apagado reabre a dúvida na mesma transação: `CommentRepository.deleteById` (autor),
+`CommentRepository.markDeleted` (moderação e limpeza de banimento) e a purga de spam (`UserContentPurgeService`) zeram as duas colunas de quem
 apontava para ele. A recompensa já paga fica (a ref é por dúvida).
 
 `PostView` expõe `acceptedCommentId` e `resolved`; `CommentView` expõe `accepted`. O feed `ALL`
@@ -390,7 +390,7 @@ o mesmo do post comum: pergunta técnica precisa de espaço para código.
 | Interface | Métodos principais |
 |---|---|
 | `PostRepository` | `save`, `findById`, `findByIds`, `findActiveByAuthors`, `findActiveByAuthor`, `findActiveAll`, `findActiveByType`, `findActiveByCommunity` |
-| `CommentRepository` | `save`, `findById`, `deleteById`, `findActiveByPost`, `findPostIdsByAuthor` |
+| `CommentRepository` | `save`, `findById`, `deleteById`, `markDeleted`, `findActiveByPost`, `findPostIdsByAuthor` |
 | `PostInteractionRepository` | `addReaction`, `removeReaction`, `addSave`, `removeSave`, `addShare`, `addCommentReaction`, `removeCommentReaction`, `findReactionsByPostId`, `findReactionsByCommentId`, `findSavedPostIdsByUserId`, `findReactionsByUserAndPostIds` |
 | `IdGenerator` | `generate()` |
 | `ConnectionGraphRepository` | `findFriends`, `findFriendsOfFriends`, `findUserTags` |
@@ -1043,9 +1043,21 @@ Detalhes em [`DIGEST.md`](DIGEST.md).
 | Função | Descrição |
 |---|---|
 | `report(String reporterId, String targetType, String targetId, String reason, String description)` | Cria report de conteúdo |
-| `approve(String reportId, String reviewerId)` | Aprova report, deleta post alvo (soft-delete) |
+| `approve(String reportId, String reviewerId, String note)` | Aprova report e remove o alvo quando é post ou comentário do feed (soft-delete) |
+| `ban(String reportId, String reviewerId, AuthSessionRepository sessions)` | Remove o alvo (post ou comentário), bane o autor e revoga as sessões |
 | `dismiss(String reportId, String reviewerId)` | Rejeita report |
 | `listPending(int limit)` | Lista reports pendentes |
+
+**Remoção do alvo confirmado** (`ReportedContentRemover`): aprovar, penalizar (IA ou voto de
+moderadores) e banir removem o conteúdo denunciado pelo mesmo caminho. Post sai por
+`ModerationRemovePostUseCase`; comentário do feed sai por `ModerationRemoveCommentUseCase`
+(`DeleteCommentService.removeAsModerator`): status `DELETED`, some das listas, o contador de
+comentários do post devolve a unidade, o aceite de resposta é desfeito e a ação vai para o audit log
+(`COMMENT_DELETED_BY_MODERATION`). A linha fica (soft-delete) para a revisão da denúncia, o recurso e a
+contagem de fatos confirmados da reputação. Respostas ao comentário removido continuam no ar; o
+front as mostra como comentário de primeiro nível. Os demais alvos (perfil, vaga, jogo, grupo,
+mensagem) não têm remoção automática: o time age no módulo do alvo. A limpeza de banimento
+(`BanCleanupService`) remove os comentários do banido pelo mesmo caso de uso.
 
 ### Domain Objects
 
