@@ -21,7 +21,9 @@ public record OwnProfileView(String id, String username, String name, String hea
 		String avatarFrame, String cardTheme, String nameplate, String bannerItem, String profileEffect,
 		String statusText, String statusIcon, String birthDate,
 		/** Cidade/UF do proprio perfil e se aparecem para os outros. */
-		String city, String state, boolean showCity) {
+		String city, String state, boolean showCity,
+		/** Equipped GARDEN item id; null = the default garden. */
+		String gardenStyle) {
 
 	public static OwnProfileView from(UserProfile profile) {
 		return new OwnProfileView(profile.id(), profile.username(), profile.name(), profile.headline(), profile.email(),
@@ -37,7 +39,7 @@ public record OwnProfileView(String id, String username, String name, String hea
 			profile.statusText(), profile.statusIcon(),
 			profile.birthDate() != null ? profile.birthDate().toString() : null,
 			profile.place() == null ? null : profile.place().city(),
-			profile.place() == null ? null : profile.place().state(), profile.showCity());
+			profile.place() == null ? null : profile.place().state(), profile.showCity(), profile.gardenStyle());
 
 	}
 
@@ -52,7 +54,8 @@ public record OwnProfileView(String id, String username, String name, String hea
 			bioHtml, bannerHtml, skills, goals, availability, portfolio, externalLinks, openToWork, isMentor,
 			connectionsCount, followersCount, reputation, postsCount, nickname, socialName, pronouns, badges, aka,
 			resumeUrl, resumeName, showRanking, nameTheme, nameFont, nameColor, contributorTagColor, avatarFrame,
-			cardTheme, nameplate, bannerItem, profileEffect, statusText, statusIcon, birthDate, city, state, showCity);
+			cardTheme, nameplate, bannerItem, profileEffect, statusText, statusIcon, birthDate, city, state, showCity,
+			gardenStyle);
 	}
 
 	/** Capa em HTML/CSS; so a leitura do perfil anexa (mesmo motivo da bio). */
@@ -61,6 +64,7 @@ public record OwnProfileView(String id, String username, String name, String hea
 			bioHtml, bannerHtml, skills, goals, availability, portfolio, externalLinks, openToWork, isMentor,
 			connectionsCount, followersCount, reputation, postsCount, nickname, socialName, pronouns, badges, aka,
 			resumeUrl, resumeName, showRanking, nameTheme, nameFont, nameColor, contributorTagColor, avatarFrame,
-			cardTheme, nameplate, bannerItem, profileEffect, statusText, statusIcon, birthDate, city, state, showCity);
+			cardTheme, nameplate, bannerItem, profileEffect, statusText, statusIcon, birthDate, city, state, showCity,
+			gardenStyle);
 	}
 }

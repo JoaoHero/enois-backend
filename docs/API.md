@@ -727,11 +727,14 @@ A resposta será cacheadada e reutilizada se a mesma chave for reenviada.
 The catalog lives in `src/main/resources/cosmetics/catalog.json` and is validated at startup
 (unique ids and release orders, known collections, parseable windows, look items that exist and
 are for sale); a broken file stops the boot. Each item has `id`, `kind` (`FRAME`, `BADGE`,
-`NAME_STYLE`, `NAMEPLATE`, `BANNER`, `CARD_THEME`, `PROFILE_EFFECT`), `collection`, `name`,
+`NAME_STYLE`, `NAMEPLATE`, `BANNER`, `CARD_THEME`, `PROFILE_EFFECT`, `GARDEN`), `collection`, `name`,
 `description`, `priceMf`, `cssRing`, `releaseOrder`, `available` and `purchasable`.
 
 - `releaseOrder` is the positive, unique order of entry in the catalog. The 26 original frames
   keep 1 to 26, have `collection: null` and are always on sale; the seasonal items follow.
+- `GARDEN` items (`garden-cerrado`, `garden-mata-atlantica`, `garden-caatinga`, `garden-pampa`)
+  style the profile garden. They have `collection: null`, so they are always on sale; the equipped
+  one is `gardenStyle` on the profile (`users.garden_style`), and none equipped is the default garden.
 - Seasons are month-day windows in America/Sao_Paulo, inclusive, and may wrap the year. Out of
   season an item is listed with `available: false` and buying it returns `409 OUT_OF_SEASON`;
   owned items can always be equipped. Event rewards are never for sale (`403 NOT_FOR_SALE`).
