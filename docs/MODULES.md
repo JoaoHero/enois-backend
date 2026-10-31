@@ -1546,3 +1546,23 @@ o check-in da semana, reivindicado em `study_pair_reminders` (seguro com várias
 | `StudyPairController` | Rotas `/study-pairs/**` |
 
 Detalhes e contrato em [`STUDY_PAIRS.md`](STUDY_PAIRS.md).
+
+## 40. ReleaseNotes (Novidades)
+
+The "O que há de novo no Énóis" popup: admins publish a short list of plain text items from the
+panel and the front shows it once per release. Separate from the admin notice (`notices/`), which is
+sanitized HTML for a banner/modal. A single row in `release_note` (V225, fixed id `ativo`) with the
+items as a JSON array; publishing replaces it, keeping `publishedAt` and bumping `updatedAt` (the
+version key the front uses).
+
+| Route | Description |
+|---|---|
+| `GET /novidades/atual` | Public read; `204` when nothing is published |
+| `PUT /admin/novidades` | Publish or replace (admin) |
+| `DELETE /admin/novidades` | Take it down (admin) |
+
+Validation: 1 to 8 items, title up to 80 and description up to 240 characters, both required after
+trim and `PlainText.defuse`. Contract in [`API.md`](API.md#release-notes-o-que-há-de-novo-no-énóis).
+
+Files: `ReleaseNoteController`, `ReleaseNoteService`, `ReleaseNoteRepository`,
+`ReleaseNotePersistenceAdapter`, `ReleaseNoteJpaEntity`.

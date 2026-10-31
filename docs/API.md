@@ -830,3 +830,33 @@ Resposta:
 
 `GET /api/carteira` traz o mesmo objeto no campo `streak` (aditivo). Ler a sequência não credita
 nada; a presença é contada pelas ações descritas em `docs/COIN_ECONOMY.md`.
+
+## Release notes ("O que há de novo no Énóis")
+
+| Method | Route | Description | Auth |
+|---|---|---|---|
+| GET | `/api/novidades/atual` | Current release notes; `204` with no body when nothing is published | No |
+| PUT | `/api/admin/novidades` | Publishes or replaces the release notes | Admin |
+| DELETE | `/api/admin/novidades` | Takes the release notes down (`204`, idempotent) | Admin |
+
+`PUT` body and `GET`/`PUT` response:
+
+```json
+{ "items": [{ "title": "Enquetes", "description": "Agora dá para criar enquete no feed." }] }
+```
+
+```json
+{
+  "id": "ativo",
+  "items": [{ "title": "Enquetes", "description": "Agora dá para criar enquete no feed." }],
+  "publishedAt": "2026-10-31T13:00:00Z",
+  "updatedAt": "2026-10-31T13:00:00Z"
+}
+```
+
+There is a single release at a time (fixed id `ativo`): publishing replaces it. `publishedAt` is the
+first publication and survives edits; `updatedAt` changes on every publish and is the version key
+the front uses to show the popup once per release. Items are plain text, trimmed and passed through
+the same defense as post content (`PlainText.defuse`). `400` codes: `INVALID_RELEASE_ITEMS` (missing,
+empty or more than 8 items), `RELEASE_ITEM_TITLE_REQUIRED`, `RELEASE_ITEM_TITLE_TOO_LONG` (80),
+`RELEASE_ITEM_DESCRIPTION_REQUIRED`, `RELEASE_ITEM_DESCRIPTION_TOO_LONG` (240).
