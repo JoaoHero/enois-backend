@@ -437,13 +437,15 @@ Um ponto de parada explícito no feed ("você já viu tudo o que é novo desde a
 rolagem infinita. Uma linha por pessoa em `feed_seen_markers` (V214), lida e gravada por
 `FeedSeenMarkerRepository` (`FeedSeenMarkerJdbcAdapter`).
 
-- `GET /api/feed` sem `cursor` devolve `lastSeenAt`: o marcador **antes** desta visita (ou `null`).
-  Páginas com `cursor` devolvem `null`; o front guarda o valor da primeira página. Abas ranqueadas
-  (`FOR_YOU`, `TRENDING`, `INTERACTED`) também devolvem `null`: o divisor depende de ordem cronológica.
+- `GET /api/feed?tab=FOR_YOU` without `cursor` returns `lastSeenAt`: the marker **before** this visit (or
+  `null`). Cursor pages and every other tab return `null` (maintainer decision: the marker belongs to
+  "Para você" only). The front keeps the first page's value for the whole visit.
+- `FOR_YOU` pages are date windows (`GetFeedService.forYou`): the `limit` newest visible posts, cursor =
+  the oldest of them; the liked-topics boost reorders only inside the page.
 - `POST /api/feed/seen {seenUntil}` é um único upsert com `greatest(...)`: o marcador nunca volta, mesmo
   com chamadas concorrentes ou fora de ordem, e o valor é limitado ao relógio do servidor (sem futuro).
-- Front: desenhar o divisor "Você está em dia" antes do primeiro post com `createdAt <= lastSeenAt`;
-  chamar `POST /api/feed/seen` com o `createdAt` do post mais recente depois que a pessoa rolar além dele.
+- Front: on "Para você", posts newer than `lastSeenAt` go first (newest first), then the divider, then
+  the rest in API order; `POST /api/feed/seen` with the newest `createdAt` once the person scrolls past it.
 
 ---
 
