@@ -36,12 +36,14 @@ class ReportController {
 	private final ModerationRemovePostUseCase removePost;
 	private final com.socialcoisa.rede.moderation.application.ModeratorService moderators;
 	private final com.socialcoisa.rede.moderation.adapters.out.persistence.ReportE2eKeyStore reportE2eKeys;
+	private final com.socialcoisa.rede.identity.application.port.out.AuthSessionRepository sessions;
 
 	ReportController(ModerationService moderationService, IdempotencyApplicationService idempotency,
 			CurrentUserResolver currentUserResolver, AdminGuard adminGuard, ReportRepository reports,
 			ModerationRemovePostUseCase removePost,
 			com.socialcoisa.rede.moderation.application.ModeratorService moderators,
-			com.socialcoisa.rede.moderation.adapters.out.persistence.ReportE2eKeyStore reportE2eKeys) {
+			com.socialcoisa.rede.moderation.adapters.out.persistence.ReportE2eKeyStore reportE2eKeys,
+			com.socialcoisa.rede.identity.application.port.out.AuthSessionRepository sessions) {
 		this.moderationService = moderationService;
 		this.idempotency = idempotency;
 		this.currentUserResolver = currentUserResolver;
@@ -50,6 +52,7 @@ class ReportController {
 		this.removePost = removePost;
 		this.moderators = moderators;
 		this.reportE2eKeys = reportE2eKeys;
+		this.sessions = sessions;
 	}
 
 	@PostMapping("/reports")
@@ -176,8 +179,7 @@ class ReportController {
 	}
 
 	@PostMapping("/admin/reports/{reportId}/ban")
-	ResponseEntity<String> ban(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String reportId,
-			com.socialcoisa.rede.identity.application.port.out.AuthSessionRepository sessions) {
+	ResponseEntity<String> ban(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String reportId) {
 		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		adminGuard.requireAdmin(user);
 		return ResponseEntity.ok(ReportView.from(moderationService.ban(reportId, user.id().value(), sessions)).toString());
