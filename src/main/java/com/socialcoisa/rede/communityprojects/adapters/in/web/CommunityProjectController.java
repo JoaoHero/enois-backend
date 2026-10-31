@@ -52,12 +52,11 @@ class CommunityProjectController {
 			@RequestParam(required = false) String order,
 			@RequestParam(required = false) Integer limit,
 			@RequestParam(required = false) String cursor,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
 		int size = limit == null ? 24 : Math.min(48, Math.max(1, limit));
 		int offset = parseCursor(cursor);
 		var page = projects.search(query, order, size, offset);
-		String viewerId = viewerIdOrNull(userId, sessionToken);
+		String viewerId = viewerIdOrNull(sessionToken);
 		List<CommunityProjectView> items = views(page.items(), viewerId);
 		String next = page.hasMore() ? Integer.toString(offset + size) : null;
 		return new CommunityProjectPageView(items, next);
@@ -65,32 +64,28 @@ class CommunityProjectController {
 
 	@GetMapping("/community-projects/{username}")
 	List<CommunityProjectView> byUser(@PathVariable String username,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		return views(projects.publishedByUser(username), viewerIdOrNull(userId, sessionToken));
+		return views(projects.publishedByUser(username), viewerIdOrNull(sessionToken));
 	}
 
 	@GetMapping("/community-projects/{username}/{projectSlug}")
 	CommunityProjectView bySlug(@PathVariable String username, @PathVariable String projectSlug,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		String viewerId = viewerIdOrNull(userId, sessionToken);
+		String viewerId = viewerIdOrNull(sessionToken);
 		CommunityProject project = projects.byUserAndSlug(username, projectSlug, viewerId);
 		return CommunityProjectView.of(project, projects.usernameOf(project.userId()), viewerId);
 	}
 
 	@GetMapping("/me/community-projects")
-	List<CommunityProjectView> mine(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	List<CommunityProjectView> mine(@RequestHeader("X-Session-Token") String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return views(projects.ownedBy(user.id().value()), user.id().value());
 	}
 
 	@PostMapping("/community-projects")
-	CommunityProjectView submit(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken,
+	CommunityProjectView submit(@RequestHeader("X-Session-Token") String sessionToken,
 			@RequestBody SubmitProjectRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		CommunityProject project = projects.submit(user.id().value(), request.slug(), request.title(),
 			request.description(), request.shortDescription(), request.cover(), request.url(), request.repoUrl(),
 			request.tags(), request.category());
@@ -98,10 +93,9 @@ class CommunityProjectController {
 	}
 
 	@PatchMapping("/community-projects/{projectId}")
-	CommunityProjectView edit(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken,
+	CommunityProjectView edit(@RequestHeader("X-Session-Token") String sessionToken,
 			@PathVariable String projectId, @RequestBody SubmitProjectRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		CommunityProject project = projects.edit(projectId, user.id().value(), request.title(), request.description(),
 			request.shortDescription(), request.cover(), request.url(), request.repoUrl(), request.tags(),
 			request.category(), request.slug());
@@ -109,17 +103,15 @@ class CommunityProjectController {
 	}
 
 	@DeleteMapping("/community-projects/{projectId}")
-	Map<String, Object> remove(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String projectId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	Map<String, Object> remove(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String projectId) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		projects.remove(projectId, user.id().value());
 		return Map.of("id", projectId, "status", "DELETED");
 	}
 
 	@PostMapping("/community-projects/{projectId}/resubmit")
-	Map<String, Object> resubmit(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String projectId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	Map<String, Object> resubmit(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String projectId) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		CommunityProject project = projects.resubmit(projectId, user.id().value());
 		return Map.of("id", project.id(), "status", project.status().name());
 	}
@@ -127,48 +119,43 @@ class CommunityProjectController {
 	// --- moderação ---
 
 	@GetMapping("/moderation/community-projects")
-	List<CommunityProjectView> pending(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken,
+	List<CommunityProjectView> pending(@RequestHeader("X-Session-Token") String sessionToken,
 			@RequestParam(defaultValue = "30") int limit) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		requireModerator(user);
 		return views(projects.pending(limit), null);
 	}
 
 	@PostMapping("/moderation/community-projects/{projectId}/approve")
-	Map<String, Object> approve(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String projectId,
+	Map<String, Object> approve(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String projectId,
 			@RequestBody(required = false) ReviewRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		requireModerator(user);
 		CommunityProject project = projects.approve(projectId, user.id().value(), request == null ? null : request.note());
 		return Map.of("id", project.id(), "status", project.status().name());
 	}
 
 	@PostMapping("/moderation/community-projects/{projectId}/reject")
-	Map<String, Object> reject(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String projectId,
+	Map<String, Object> reject(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String projectId,
 			@RequestBody ReviewRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		requireModerator(user);
 		CommunityProject project = projects.reject(projectId, user.id().value(), request == null ? null : request.note());
 		return Map.of("id", project.id(), "status", project.status().name());
 	}
 
 	@PostMapping("/admin/community-projects/{projectId}/suspend")
-	Map<String, Object> suspend(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String projectId,
+	Map<String, Object> suspend(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String projectId,
 			@RequestBody(required = false) ReviewRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		adminGuard.requireAdmin(user);
 		CommunityProject project = projects.suspend(projectId, user.id().value(), request == null ? null : request.note());
 		return Map.of("id", project.id(), "status", project.status().name());
 	}
 
 	@PostMapping("/admin/community-projects/{projectId}/unsuspend")
-	Map<String, Object> unsuspend(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String projectId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	Map<String, Object> unsuspend(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String projectId) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		adminGuard.requireAdmin(user);
 		CommunityProject project = projects.unsuspend(projectId, user.id().value());
 		return Map.of("id", project.id(), "status", project.status().name());
@@ -181,9 +168,9 @@ class CommunityProjectController {
 		throw new ApiException(403, "FORBIDDEN", "Acesso restrito à moderação.");
 	}
 
-	private String viewerIdOrNull(String userId, String sessionToken) {
+	private String viewerIdOrNull(String sessionToken) {
 		try {
-			return currentUserResolver.resolve(userId, sessionToken).id().value();
+			return currentUserResolver.resolve(sessionToken).id().value();
 		}
 		catch (Exception ignored) {
 			return null;

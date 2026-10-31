@@ -18,6 +18,12 @@ public interface GithubIssuesGateway {
 
 	boolean reopenIssue(int issueNumber);
 
+	/**
+	 * Comenta na issue e devolve o id do comentário. {@code tokenOverride} publica em nome de quem
+	 * vinculou o GitHub com escrita; nulo usa o token de serviço.
+	 */
+	Optional<Long> comment(int issueNumber, String body, String tokenOverride);
+
 	record IssueRef(int number, String url) {
 	}
 }

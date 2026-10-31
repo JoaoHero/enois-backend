@@ -50,9 +50,8 @@ class ServicesController {
 	}
 
 	@GetMapping("/servicos/minhas")
-	Map<String, Object> mine(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = user(userId, sessionToken);
+	Map<String, Object> mine(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = user(sessionToken);
 		var ofertas = services.listingsBySeller(user.id().value());
 		var prestadores = services.sellersOf(ofertas);
 		return Map.of(
@@ -64,10 +63,9 @@ class ServicesController {
 	}
 
 	@PostMapping("/servicos/ofertas")
-	Map<String, Object> publishListing(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> publishListing(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody PublishListingRequest request) {
-		CurrentUser user = user(userId, sessionToken);
+		CurrentUser user = user(sessionToken);
 		ServiceListing listing = services.publishListing(user.id().value(), request.category(), request.title(),
 			request.description(), request.deliverables(), request.price(), request.currency(),
 			request.deliveryDays());
@@ -75,10 +73,9 @@ class ServicesController {
 	}
 
 	@PostMapping("/servicos/ofertas/{listingId}/contratar")
-	Map<String, Object> buyListing(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> buyListing(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String listingId) {
-		CurrentUser user = user(userId, sessionToken);
+		CurrentUser user = user(sessionToken);
 		ServiceContract contract = services.buyListing(listingId, user.id().value());
 		return Map.of("contractId", contract.id(), "state", contract.escrowState().name());
 	}
@@ -91,21 +88,19 @@ class ServicesController {
 	 * entrada dele. Em FAISCA o mesmo caminho existe — o escrow cuida do dinheiro.
 	 */
 	@PostMapping("/servicos/ofertas/{listingId}/chat")
-	Map<String, Object> openChat(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> openChat(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String listingId,
 			@RequestBody(required = false) OpenChatRequest request) {
-		CurrentUser user = user(userId, sessionToken);
+		CurrentUser user = user(sessionToken);
 		var chat = services.openChat(listingId, user.id().value(), request == null ? null : request.message());
 		return Map.of("conversationId", chat.conversationId(), "assunto", chat.assunto(),
 			"listingId", chat.listingId(), "sellerId", chat.sellerId());
 	}
 
 	@PostMapping("/servicos/pedidos")
-	Map<String, Object> createRequest(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> createRequest(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody CreateRequestRequest request) {
-		CurrentUser user = user(userId, sessionToken);
+		CurrentUser user = user(sessionToken);
 		ServiceRequest created = services.createRequest(user.id().value(), request.category(), request.title(),
 			request.description(), request.deliverables(), request.budgetMin(), request.budgetMax(),
 			request.deadline());
@@ -113,60 +108,54 @@ class ServicesController {
 	}
 
 	@PostMapping("/servicos/pedidos/{requestId}/propostas")
-	Map<String, Object> propose(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> propose(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String requestId, @RequestBody ProposeRequest request) {
-		CurrentUser user = user(userId, sessionToken);
+		CurrentUser user = user(sessionToken);
 		ServiceProposal proposal = services.propose(requestId, user.id().value(), request.message(), request.price());
 		return Map.of("id", proposal.id(), "status", proposal.status().name());
 	}
 
 	@GetMapping("/servicos/pedidos/{requestId}/propostas")
-	List<ProposalView> proposals(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	List<ProposalView> proposals(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String requestId) {
-		CurrentUser user = user(userId, sessionToken);
+		CurrentUser user = user(sessionToken);
 		return services.proposalsFor(requestId, user.id().value()).stream().map(ProposalView::from).toList();
 	}
 
 	@PostMapping("/servicos/pedidos/{requestId}/escolher")
-	Map<String, Object> choose(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> choose(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String requestId, @RequestBody ChooseRequest request) {
-		CurrentUser user = user(userId, sessionToken);
+		CurrentUser user = user(sessionToken);
 		ServiceContract contract = services.choose(requestId, user.id().value(), request.proposalId());
 		return Map.of("contractId", contract.id(), "state", contract.escrowState().name());
 	}
 
 	@PostMapping("/servicos/contratos/{contractId}/entregar")
-	Map<String, Object> deliver(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> deliver(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String contractId, @RequestBody DeliverRequest request) {
-		CurrentUser user = user(userId, sessionToken);
+		CurrentUser user = user(sessionToken);
 		ServiceContract contract = services.deliver(contractId, user.id().value(), request.note());
 		return Map.of("contractId", contract.id(), "state", contract.escrowState().name());
 	}
 
 	@PostMapping("/servicos/contratos/{contractId}/aceitar")
-	Map<String, Object> accept(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> accept(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String contractId) {
-		CurrentUser user = user(userId, sessionToken);
+		CurrentUser user = user(sessionToken);
 		ServiceContract contract = services.accept(contractId, user.id().value());
 		return Map.of("contractId", contract.id(), "state", contract.escrowState().name());
 	}
 
 	@PostMapping("/servicos/contratos/{contractId}/reembolso")
-	Map<String, Object> refund(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> refund(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String contractId) {
-		CurrentUser user = user(userId, sessionToken);
+		CurrentUser user = user(sessionToken);
 		ServiceContract contract = services.refund(contractId, user.id().value());
 		return Map.of("contractId", contract.id(), "state", contract.escrowState().name());
 	}
 
-	private CurrentUser user(String userId, String sessionToken) {
-		return currentUserResolver.resolve(userId, sessionToken);
+	private CurrentUser user(String sessionToken) {
+		return currentUserResolver.resolve(sessionToken);
 	}
 
 	record PublishListingRequest(String category, String title, String description, String deliverables, long price,
@@ -191,12 +180,14 @@ class ServicesController {
 	 * A oferta com QUEM vai prestar o serviço (nome e foto): um serviço sem rosto nao diz para
 	 * quem a pessoa esta contratando.
 	 */
-	record ListingView(String id, String sellerId, String sellerName, String sellerAvatar, String category,
-			String title, String description, String deliverables, long price, String currency, int deliveryDays,
-			String status, String createdAt) {
+	record ListingView(String id, String sellerId, String sellerName, String sellerAvatar,
+			com.socialcoisa.rede.profile.application.NameStyleView sellerStyle, String category, String title,
+			String description, String deliverables, long price, String currency, int deliveryDays, String status,
+			String createdAt) {
 		static ListingView from(ServiceListing l, ServicesService.Seller seller) {
 			return new ListingView(l.id(), l.sellerId(), seller == null ? null : seller.name(),
-				seller == null ? null : seller.avatar(), l.category(), l.title(), l.description(),
+				seller == null ? null : seller.avatar(), seller == null ? null : seller.nameStyle(),
+				l.category(), l.title(), l.description(),
 				l.deliverables(), l.price(), l.currency(), l.deliveryDays(), l.status().name(),
 				l.createdAt().toString());
 		}

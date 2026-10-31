@@ -95,6 +95,8 @@ public class ProjectsService {
 		if (title.length() > 120) {
 			throw new ApiException(400, "FIELD_TOO_LONG", "Titulo deve ter no maximo 120 caracteres.");
 		}
+		String description = PlainText.defuse(input.description());
+		check(description, 500, "a descricao do projeto");
 		if (input.stack().size() > MAX_STACK_ITEMS) {
 			throw new ApiException(400, "INVALID_STACK", "Sao no maximo " + MAX_STACK_ITEMS + " tecnologias.");
 		}
@@ -128,7 +130,7 @@ public class ProjectsService {
 		if (html == null && input.html() != null && !input.html().isBlank()) {
 			throw new ApiException(400, "INVALID_PROJECT_HTML", "HTML do projeto precisa de conteudo valido.");
 		}
-		return new UserProject(id, userId, position, title.trim(), stack, repoUrl,
+		return new UserProject(id, userId, position, title.trim(), description, stack, repoUrl,
 			status == null || status.isBlank() ? null : status.trim(), diary, html, now, now);
 	}
 

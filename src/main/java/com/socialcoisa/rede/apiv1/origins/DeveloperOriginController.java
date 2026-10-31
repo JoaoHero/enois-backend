@@ -34,26 +34,23 @@ class DeveloperOriginController {
 
 	@GetMapping
 	List<DeveloperOriginService.OriginView> list(
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return origins.list(user.id().value());
 	}
 
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
-	DeveloperOriginService.OriginView add(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	DeveloperOriginService.OriginView add(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody OriginRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return origins.add(user.id().value(), request == null ? null : request.origin());
 	}
 
 	@DeleteMapping("/{id}")
-	void remove(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	void remove(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String id) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		origins.remove(user.id().value(), id);
 	}
 

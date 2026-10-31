@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.socialcoisa.rede.feed.domain.ReactionType;
 import com.socialcoisa.rede.messaging.application.port.out.MessagingRepository;
 import com.socialcoisa.rede.messaging.domain.Conversation;
+import com.socialcoisa.rede.messaging.domain.ConversationContext;
 import com.socialcoisa.rede.messaging.domain.ConversationParticipant;
 import com.socialcoisa.rede.messaging.domain.Message;
 import com.socialcoisa.rede.notifications.application.NotificationService;
@@ -31,13 +32,16 @@ public class MessagingService {
 	private final com.socialcoisa.rede.shared.sanctions.SanctionGate sanctionGate;
 	private final com.socialcoisa.rede.network.application.port.out.ConnectionRepository connections;
 	private final com.socialcoisa.rede.shared.blocks.BlockedUsersReader blockedUsers;
+	private final com.socialcoisa.rede.coin.application.CoinService coins;
 
 	public MessagingService(MessagingRepository repository, NotificationService notificationService, Clock clock,
 			UserRateLimiter userRateLimiter, BehavioralTimingGuard behavioralTimingGuard,
 			com.socialcoisa.rede.shared.age.AgePolicyReader agePolicy, com.socialcoisa.rede.shared.age.AgeGate ageGate,
 			com.socialcoisa.rede.shared.sanctions.SanctionGate sanctionGate,
 			com.socialcoisa.rede.network.application.port.out.ConnectionRepository connections,
-			com.socialcoisa.rede.shared.blocks.BlockedUsersReader blockedUsers) {
+			com.socialcoisa.rede.shared.blocks.BlockedUsersReader blockedUsers,
+			com.socialcoisa.rede.coin.application.CoinService coins) {
+		this.coins = coins;
 		this.repository = repository;
 		this.notificationService = notificationService;
 		this.clock = clock;
@@ -72,18 +76,38 @@ public class MessagingService {
 			throw new com.socialcoisa.rede.shared.web.ApiException(400, "TOO_MANY_PARTICIPANTS",
 				"Uma conversa pode ter no maximo 100 participantes.");
 		}
+		// JOB and SERVICE conversations are opened by their own flows (and exempt from the minor
+		// rule below); the generic endpoint only creates person-to-person conversations.
+		String normalizedKind = kind == null || kind.isBlank() ? "DIRECT" : kind.trim().toUpperCase(java.util.Locale.ROOT);
+		if (!"DIRECT".equals(normalizedKind) && !"GROUP".equals(normalizedKind)) {
+			throw new ApiException(400, "INVALID_CONVERSATION_KIND", "Tipo de conversa invalido.");
+		}
 		ageGate.requireCanWrite(createdBy);
 		unique.add(createdBy);
+		// One read per kind for the whole group (up to 100 people), never one per participant.
+		// hiddenIdsFor covers blocks in both directions.
 		var creatorHidden = blockedUsers.hiddenIdsFor(createdBy);
-		for (String pid : unique) {
-			if (!pid.equals(createdBy)
-					&& (creatorHidden.contains(pid) || blockedUsers.hiddenIdsFor(pid).contains(createdBy))) {
-				throw new com.socialcoisa.rede.shared.web.ApiException(403, "USER_BLOCKED",
-					"Nao e possivel conversar com este usuario.");
+		java.util.List<String> others = unique.stream().filter(pid -> !pid.equals(createdBy)).toList();
+		if (others.stream().anyMatch(creatorHidden::contains)) {
+			throw new com.socialcoisa.rede.shared.web.ApiException(403, "USER_BLOCKED",
+				"Nao e possivel conversar com este usuario.");
+		}
+		var minors = agePolicy.minorIds(others);
+		if (!minors.isEmpty()) {
+			if (!connections.findAcceptedAmong(createdBy, minors).containsAll(minors)) {
+				throw minorDmRestricted();
+			}
+		}
+		// A DM 1:1 is one thread per pair: opening it again from the inbox search returns the same
+		// conversation instead of a duplicate (the /direct endpoint already worked this way).
+		if ("DIRECT".equals(normalizedKind) && others.size() == 1) {
+			var existing = repository.findPairByKind(createdBy, others.get(0), "DIRECT");
+			if (existing.isPresent()) {
+				return existing.get();
 			}
 		}
 		String id = "conversation_" + UUID.randomUUID().toString().replace("-", "");
-		Conversation conversation = Conversation.create(id, kind, title, createdBy, clock.instant());
+		Conversation conversation = Conversation.create(id, normalizedKind, title, createdBy, clock.instant());
 		repository.saveConversation(conversation);
 		for (String pid : unique) {
 			repository.saveParticipant(ConversationParticipant.create(id, pid, clock.instant()));
@@ -91,30 +115,20 @@ public class MessagingService {
 		return conversation;
 	}
 
-	/**
-	 * Conversa direta entre dois usuarios: devolve a existente ou cria (com os dois como
-	 * participantes). Usada, por exemplo, para entregar uma candidatura na DM de quem publicou.
-	 */
+	/** DM social entre dois usuarios: devolve a existente ou cria (com os dois como participantes). */
 	@Transactional
 	public String directConversationBetween(String userA, String userB) {
 		return directConversationBetween(userA, userB, "DIRECT");
 	}
 
 	/**
-	 * Conversa direta marcada com a origem. A candidatura de vaga usa kind = "JOB" para o inbox
-	 * poder separar as conversas de vaga das conversas com pessoas.
+	 * Conversa 1:1 de um KIND (origem) entre duas pessoas: devolve a existente daquele kind ou cria.
+	 * Cada kind e uma conversa propria: a candidatura (JOB) nunca cai na DM social (DIRECT) — e o
+	 * que separa a caixa profissional da social sem duplicar a mesma conversa.
 	 */
 	@Transactional
 	public String directConversationBetween(String userA, String userB, String kind) {
-		var existing = repository.findDirectBetween(userA, userB);
-		if (existing.isPresent()) {
-			return existing.get().id();
-		}
-		String id = "conversation_" + java.util.UUID.randomUUID().toString().replace("-", "");
-		repository.saveConversation(Conversation.create(id, kind, null, userA, clock.instant()));
-		repository.saveParticipant(ConversationParticipant.create(id, userA, clock.instant()));
-		repository.saveParticipant(ConversationParticipant.create(id, userB, clock.instant()));
-		return id;
+		return pairConversation(userA, userB, kind, null);
 	}
 
 	/**
@@ -127,12 +141,25 @@ public class MessagingService {
 	 */
 	@Transactional
 	public String serviceConversationBetween(String userA, String userB, String assunto) {
-		var existing = repository.findServiceBetween(userA, userB);
+		return pairConversation(userA, userB, "SERVICE", assunto);
+	}
+
+	/**
+	 * Conversa de PROPOSTA de freela entre quem propoe e quem publicou: profissional, uma por par
+	 * (a segunda proposta para a mesma pessoa continua na mesma conversa).
+	 */
+	@Transactional
+	public String freelanceConversationBetween(String proposerId, String posterId, String title) {
+		return pairConversation(proposerId, posterId, "FREELANCE", title);
+	}
+
+	private String pairConversation(String userA, String userB, String kind, String title) {
+		var existing = repository.findPairByKind(userA, userB, kind);
 		if (existing.isPresent()) {
 			return existing.get().id();
 		}
 		String id = "conversation_" + java.util.UUID.randomUUID().toString().replace("-", "");
-		repository.saveConversation(Conversation.create(id, "SERVICE", assunto, userA, clock.instant()));
+		repository.saveConversation(Conversation.create(id, kind, title, userA, clock.instant()));
 		repository.saveParticipant(ConversationParticipant.create(id, userA, clock.instant()));
 		repository.saveParticipant(ConversationParticipant.create(id, userB, clock.instant()));
 		return id;
@@ -152,6 +179,12 @@ public class MessagingService {
 	@Transactional
 	public Message sendMessage(String conversationId, String senderId, String text,
 			java.util.List<String> mediaIds, boolean mediaSpoiler) {
+		return sendMessage(conversationId, senderId, text, mediaIds, mediaSpoiler, null);
+	}
+
+	@Transactional
+	public Message sendMessage(String conversationId, String senderId, String text,
+			java.util.List<String> mediaIds, boolean mediaSpoiler, String replyToId) {
 		// ECA Digital: sem data de nascimento declarada, nao envia mensagem (tela de regularizacao).
 		ageGate.requireCanWrite(senderId);
 		// Sancao de moderacao: conta restrita nao manda mensagem. O canal privado e onde a
@@ -175,6 +208,12 @@ public class MessagingService {
 		if (midias.size() > 4) {
 			throw new ApiException(400, "TOO_MANY_MEDIA", "Anexe no maximo 4 midias por mensagem.");
 		}
+		// Reply: a mensagem citada precisa existir e pertencer a esta conversa.
+		if (replyToId != null) {
+			repository.findMessageById(replyToId)
+				.filter(m -> m.conversationId().equals(conversationId))
+				.orElseThrow(() -> new ApiException(400, "INVALID_REPLY", "Mensagem citada nao encontrada nesta conversa."));
+		}
 		// Duplo clique/retry: a MESMA mensagem (texto + mídias) do mesmo remetente em até 2
 		// minutos devolve a linha já criada em vez de duplicar e notificar de novo.
 		var duplicate = repository.findRecentDuplicate(conversationId, senderId, corpo,
@@ -184,7 +223,7 @@ public class MessagingService {
 			return duplicate.get();
 		}
 		String id = "message_" + UUID.randomUUID().toString().replace("-", "");
-		Message message = Message.create(id, conversationId, senderId, corpo, midias, mediaSpoiler, clock.instant());
+		Message message = Message.create(id, conversationId, senderId, corpo, midias, mediaSpoiler, replyToId, clock.instant());
 		repository.saveMessage(message);
 		// Ao enviar, a conversa fica lida para QUEM ENVIOU (PR #15) — antes o contador continuava
 		// aceso mesmo com a conversa aberta.
@@ -198,11 +237,74 @@ public class MessagingService {
 		List<ConversationParticipant> participants = repository.findParticipantsByConversation(conversationId);
 		for (ConversationParticipant p : participants) {
 			if (p.userId().equals(senderId)) continue;
-			notificationService.create(p.userId(), "NEW_MESSAGE", senderId,
+			notificationService.create(p.userId(), messageNotificationKind(conversation), senderId,
 				"Nova mensagem", preview,
 				"/api/conversations/" + conversationId, "Responder");
 		}
+		coins.recordPresence(senderId);
 		return message;
+	}
+
+	/** Envia mensagem E2E: o texto já é ciphertext, o server não lê. */
+	@Transactional
+	public Message sendE2eMessage(String conversationId, String senderId, String ciphertext,
+			String iv, java.util.List<String> mediaIds, boolean mediaSpoiler) {
+		return sendE2eMessage(conversationId, senderId, ciphertext, iv, mediaIds, mediaSpoiler, null);
+	}
+
+	@Transactional
+	public Message sendE2eMessage(String conversationId, String senderId, String ciphertext,
+			String iv, java.util.List<String> mediaIds, boolean mediaSpoiler, String replyToId) {
+		ageGate.requireCanWrite(senderId);
+		sanctionGate.requireNotRestricted(senderId);
+		userRateLimiter.require(senderId, UserRateLimiter.SEND_MESSAGE);
+		behavioralTimingGuard.record(senderId);
+		Conversation conversation = repository.findConversationById(conversationId)
+			.orElseThrow(() -> new ApiException(404, "CONVERSATION_NOT_FOUND", "Conversa nao encontrada."));
+		if (!repository.isParticipant(conversationId, senderId)) {
+			throw new ApiException(403, "NOT_PARTICIPANT", "Voce nao participa desta conversa.");
+		}
+		protegeMenorDestinatario(conversationId, senderId);
+		if (ciphertext == null || ciphertext.isBlank()) {
+			throw new ApiException(400, "EMPTY_MESSAGE", "Mensagem cifrada vazia.");
+		}
+		if (ciphertext.length() > 8000) {
+			throw new ApiException(400, "MESSAGE_TOO_LONG", "Mensagem excede o tamanho maximo.");
+		}
+		if (iv == null || iv.isBlank() || iv.length() > 44) {
+			throw new ApiException(400, "MISSING_IV", "IV obrigatorio para mensagem E2E.");
+		}
+		if (replyToId != null) {
+			repository.findMessageById(replyToId)
+				.filter(m -> m.conversationId().equals(conversationId))
+				.orElseThrow(() -> new ApiException(400, "INVALID_REPLY", "Mensagem citada nao encontrada nesta conversa."));
+		}
+		java.util.List<String> midias = mediaIds == null ? java.util.List.of()
+			: mediaIds.stream().filter(v -> v != null && !v.isBlank()).map(String::trim).distinct().toList();
+		String id = "message_" + UUID.randomUUID().toString().replace("-", "");
+		Message message = Message.createE2e(id, conversationId, senderId, ciphertext, iv, midias, mediaSpoiler,
+			replyToId, clock.instant());
+		repository.saveMessage(message);
+		repository.markRead(conversationId, senderId, clock.instant());
+		repository.saveConversation(conversation.touch(clock.instant()));
+		List<ConversationParticipant> participants = repository.findParticipantsByConversation(conversationId);
+		for (ConversationParticipant p : participants) {
+			if (p.userId().equals(senderId)) continue;
+			notificationService.create(p.userId(), messageNotificationKind(conversation), senderId,
+				"Nova mensagem", "Mensagem cifrada",
+				"/api/conversations/" + conversationId, "Responder");
+		}
+		coins.recordPresence(senderId);
+		return message;
+	}
+
+	/**
+	 * Mensagem de conversa profissional (candidatura, servico) avisa como NEW_WORK_MESSAGE: e o que
+	 * deixa o aviso na caixa profissional em vez da social.
+	 */
+	static String messageNotificationKind(Conversation conversation) {
+		return ConversationContext.of(conversation.kind()) == ConversationContext.PROFESSIONAL
+			? "NEW_WORK_MESSAGE" : "NEW_MESSAGE";
 	}
 
 	/**
@@ -210,12 +312,13 @@ public class MessagingService {
 	 * Desconhecidos nao abrem conversa com menor — o primeiro vetor de contato abusivo fica fechado.
 	 */
 	private void protegeMenorDestinatario(String conversationId, String senderId) {
-		// A restrição vale para conversa DIRETA entre pessoas: em grupos e canais, o menor escolheu
-		// participar (e a moderação cobre o conteúdo).
+		// Applies to every person-to-person conversation, groups included: a minor added to a group
+		// did not choose its other members. JOB and SERVICE conversations are opened by the minor's
+		// own action (applying, hiring) and keep working.
 		String kind = repository.findConversationById(conversationId)
 			.map(conversation -> conversation.kind())
 			.orElse("DIRECT");
-		if (!"DIRECT".equalsIgnoreCase(kind)) {
+		if ("JOB".equalsIgnoreCase(kind) || "SERVICE".equalsIgnoreCase(kind)) {
 			return;
 		}
 		List<com.socialcoisa.rede.messaging.domain.ConversationParticipant> participants = repository
@@ -225,15 +328,23 @@ public class MessagingService {
 			if (recipientId.equals(senderId)) {
 				continue;
 			}
-			if (!agePolicy.isMinor(recipientId)) {
-				continue;
-			}
-			if (!connections.existsActiveConnection(senderId, recipientId)) {
-				throw new ApiException(403, "MINOR_DM_RESTRICTED",
-					"Para proteger usuarios menores de idade, so e possivel conversar com eles apos uma conexao aceita.");
-			}
+			requireMayContactMinor(senderId, recipientId);
 		}
 	}
+
+	/** ECA Digital: a minor is only reachable by someone with an ACCEPTED connection to them. */
+	private void requireMayContactMinor(String actorId, String recipientId) {
+		if (agePolicy.isMinor(recipientId) && !connections.existsAcceptedConnection(actorId, recipientId)) {
+			throw minorDmRestricted();
+		}
+	}
+
+	private static ApiException minorDmRestricted() {
+		return new ApiException(403, "MINOR_DM_RESTRICTED",
+			"Para proteger usuarios menores de idade, so e possivel conversar com eles apos uma conexao aceita.");
+	}
+
+
 
 	@Transactional
 	public void markRead(String conversationId, String userId) {
@@ -243,8 +354,9 @@ public class MessagingService {
 		repository.markRead(conversationId, userId, clock.instant());
 	}
 
-	public List<Conversation> listConversations(String userId, java.time.Instant before, int limit) {
-		return repository.findConversationsByUserId(userId, before, limit);
+	public List<Conversation> listConversations(String userId, java.time.Instant before, ConversationContext context,
+			int limit) {
+		return repository.findConversationsByUserId(userId, before, context, limit);
 	}
 
 	public int hideConversations(String userId, java.util.List<String> ids) {
@@ -252,8 +364,9 @@ public class MessagingService {
 	}
 
 	/** As conversas arquivadas (apagadas so para quem chama). */
-	public List<Conversation> listArchivedConversations(String userId, java.time.Instant before, int limit) {
-		return repository.findArchivedConversationsByUserId(userId, before, limit);
+	public List<Conversation> listArchivedConversations(String userId, java.time.Instant before,
+			ConversationContext context, int limit) {
+		return repository.findArchivedConversationsByUserId(userId, before, context, limit);
 	}
 
 	/** Restaurar: a conversa volta para a caixa de entrada de quem chamou. */
@@ -290,6 +403,10 @@ public class MessagingService {
 		return repository.countUnread(conversationId, userId);
 	}
 
+	public int countTotalUnread(String userId, ConversationContext context) {
+		return repository.countTotalUnread(userId, context);
+	}
+
 	public List<Message> getMessages(String conversationId, String viewerId, java.time.Instant before, int limit) {
 		if (!repository.findConversationById(conversationId).isPresent()) {
 			throw new ApiException(404, "CONVERSATION_NOT_FOUND", "Conversa nao encontrada.");
@@ -299,30 +416,49 @@ public class MessagingService {
 	}
 
 	/** "Apagar para mim" por mensagem: some so para quem apagou. */
-	public int hideMessages(String userId, java.util.List<String> messageIds) {
-		return repository.hideMessages(userId, messageIds, clock.instant());
+	@Transactional
+	public int hideMessages(String conversationId, String userId, java.util.List<String> messageIds) {
+		if (!repository.isParticipant(conversationId, userId)) {
+			throw new ApiException(403, "NOT_PARTICIPANT", "Voce nao participa desta conversa.");
+		}
+		List<String> ids = messageIds == null ? List.of() : messageIds.stream()
+			.filter(id -> id != null && !id.isBlank()).map(String::trim).distinct().toList();
+		if (ids.isEmpty()) {
+			throw new ApiException(400, "EMPTY_MESSAGE_LIST", "Selecione ao menos uma mensagem.");
+		}
+		if (repository.countMessagesInConversation(conversationId, ids) != ids.size()) {
+			throw new ApiException(404, "MESSAGE_NOT_FOUND", "Mensagem nao encontrada nesta conversa.");
+		}
+		return repository.hideMessages(userId, ids, clock.instant());
 	}
 
-	public String getLastMessageText(String conversationId) {
-		return repository.findLastMessage(conversationId)
-			.map(Message::text)
-			.orElse(null);
+	public record LastMessagePreview(String text, boolean e2e, String iv, java.time.Instant time) {
+		static final LastMessagePreview EMPTY = new LastMessagePreview(null, false, null, null);
 	}
 
-	public java.time.Instant getLastMessageTime(String conversationId) {
+	public LastMessagePreview getLastMessagePreview(String conversationId) {
 		return repository.findLastMessage(conversationId)
-			.map(Message::createdAt)
-			.orElse(null);
+			.map(m -> new LastMessagePreview(m.text(), m.e2e(), m.iv(), m.createdAt()))
+			.orElse(LastMessagePreview.EMPTY);
 	}
 
 	@Transactional
 	public boolean addReaction(String messageId, String userId, ReactionType type) {
 		String id = "mreac_" + UUID.randomUUID().toString().replace("-", "");
-		return repository.addMessageReaction(id, messageId, userId, type, clock.instant());
+		boolean added = repository.addMessageReaction(id, messageId, userId, type, clock.instant());
+		if (added) {
+			coins.recordPresence(userId);
+		}
+		return added;
 	}
 
 	public List<MessagingRepository.ReactionSummary> getReactions(String messageId) {
 		return repository.findReactionsByMessageId(messageId);
+	}
+
+	/** Mensagens por ids em batch (reply previews). */
+	public List<Message> findMessagesByIds(java.util.Collection<String> messageIds) {
+		return repository.findMessagesByIds(messageIds);
 	}
 
 	/**

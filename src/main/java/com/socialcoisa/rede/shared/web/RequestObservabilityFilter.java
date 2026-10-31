@@ -70,6 +70,16 @@ public class RequestObservabilityFilter extends OncePerRequestFilter {
 			MDC.put(MDC_DEVICE_ID, deviceId);
 		}
 		response.setHeader(REQUEST_ID_HEADER, requestId);
+		boolean tracked = !isProbe(request.getRequestURI())
+			&& !request.getRequestURI().startsWith("/admin/monitoring");
+		if (tracked) {
+			try {
+				monitoring.requestStarted();
+			}
+			catch (RuntimeException ignored) {
+				// Métrica não pode impedir a requisição.
+			}
+		}
 		try {
 			filterChain.doFilter(request, response);
 		}
@@ -82,31 +92,43 @@ public class RequestObservabilityFilter extends OncePerRequestFilter {
 			// Health probes do Kubernetes batem a cada 10s: em INFO eles inundariam (e encareceriam)
 			// o CloudWatch sem dizer nada sobre o produto. Continuam disponíveis em DEBUG.
 			boolean probe = isProbe(request.getRequestURI());
-			var event = probe ? LOGGER.atDebug() : status >= 500 ? LOGGER.atError() : LOGGER.atInfo();
-			event.addKeyValue("http.method", method)
-				.addKeyValue("http.route", route)
-				.addKeyValue("http.path", request.getRequestURI())
+			boolean clientDisconnected = Boolean.TRUE
+				.equals(request.getAttribute(GlobalExceptionHandler.CLIENT_DISCONNECTED_ATTRIBUTE));
+			var event = clientDisconnected || probe ? LOGGER.atDebug()
+				: status >= 500 ? LOGGER.atError() : LOGGER.atInfo();
+			// http.method/http.path NAO entram via addKeyValue aqui: eles ja estao no MDC (acima) e o
+			// encoder estruturado (ECS) os inclui automaticamente nesta mesma linha. Repeti-los colidia
+			// com o MDC sob o mesmo campo aninhado e o encoder lancava "IllegalStateException: Duplicate
+			// nested pairs added under 'http.method'" em todo request — em prod isso corrompia a escrita
+			// da resposta no meio do processamento (HTTP 200 com corpo vazio), mais visivel no Actuator
+			// (/actuator/prometheus, /actuator/health, /actuator/metrics, /actuator) por serem os
+			// endpoints com corpo maior e commit mais tardio do que os endpoints normais da API.
+			safeLog(() -> event.addKeyValue("http.route", route)
 				.addKeyValue("http.status", status)
 				.addKeyValue("durationMs", durationMs)
 				.addKeyValue("userAgent", userAgent(request))
 				.addKeyValue("deviceId", deviceId)
 				.log("http_request requestId={} method={} path={} status={} durationMs={} clientIp={} userId={} deviceId={}",
-					requestId, method, request.getRequestURI(), status, durationMs, clientIp, userId, deviceId);
-			if (!probe && durationMs >= SLOW_REQUEST_MS) {
-				LOGGER.atWarn()
-					.addKeyValue("http.method", method)
+					requestId, method, request.getRequestURI(), status, durationMs, clientIp, userId, deviceId));
+			if (!clientDisconnected && !probe && durationMs >= SLOW_REQUEST_MS) {
+				safeLog(() -> LOGGER.atWarn()
 					.addKeyValue("http.route", route)
 					.addKeyValue("http.status", status)
 					.addKeyValue("durationMs", durationMs)
 					.log("slow_request requestId={} method={} route={} status={} durationMs={}", requestId, method,
-						route, status, durationMs);
+						route, status, durationMs));
 			}
 			// Monitorabilidade: métricas de toda requisição (exceto a própria tela de monitoração,
 			// que inflaria o gráfico com o polling do painel) e evento em 4xx/5xx.
-			if (!probe && !request.getRequestURI().startsWith("/admin/monitoring")) {
+			if (tracked) {
 				try {
-					monitoring.recordRequest(method, request.getRequestURI(), route, status, durationMs, requestId,
-						userId, clientIp, deviceId);
+					if (clientDisconnected) {
+						monitoring.recordClientDisconnect();
+					}
+					else {
+						monitoring.recordRequest(method, request.getRequestURI(), route, status, durationMs, requestId,
+							userId, clientIp, deviceId);
+					}
 				}
 				catch (RuntimeException ignored) {
 					// Nunca derruba a requisição real por causa da monitoração.
@@ -126,6 +148,22 @@ public class RequestObservabilityFilter extends OncePerRequestFilter {
 			MDC.remove("http.method");
 			MDC.remove("http.path");
 			MDC.remove(MDC_DEVICE_ID);
+		}
+	}
+
+	/**
+	 * Escrever o access log nunca pode comprometer a resposta real. Isto existe por causa de um
+	 * incidente real: um encoder estruturado (ECS) lancando {@code IllegalStateException} no meio do
+	 * {@code finally} desta classe corrompia a escrita do corpo da resposta ja em andamento (ver
+	 * comentario acima, no ponto de uso). Qualquer falha de logging — essa ou futura — deve ficar
+	 * contida aqui, nunca propagar pelo filtro.
+	 */
+	private static void safeLog(Runnable logStatement) {
+		try {
+			logStatement.run();
+		}
+		catch (RuntimeException ex) {
+			LOGGER.warn("access_log_write_failed {}", ex.toString());
 		}
 	}
 

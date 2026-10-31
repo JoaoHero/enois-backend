@@ -115,6 +115,9 @@ public class MarketplaceService {
 		if (!purchase.ownedBy(buyerId)) {
 			throw new ApiException(403, "NOT_THE_BUYER", "Só quem comprou abre este conteúdo.");
 		}
+		if (purchase.state() == MarketplacePurchase.State.REFUNDED) {
+			throw new ApiException(403, "PURCHASE_REFUNDED", "O acesso foi encerrado após o reembolso.");
+		}
 		MarketplaceListing listing = listings.findListingById(purchase.listingId())
 			.orElseThrow(() -> new ApiException(404, "LISTING_NOT_FOUND", "Listagem não encontrada."));
 		if (listing.itemKind() == MarketplaceListing.ItemKind.THEME) {
@@ -131,7 +134,12 @@ public class MarketplaceService {
 
 	@Transactional
 	public MarketplacePurchase buy(String listingId, String buyerId) {
-		MarketplaceListing listing = listing(listingId);
+		MarketplaceListing listing = listings.findListingByIdForUpdate(listingId)
+			.orElseThrow(() -> new ApiException(404, "LISTING_NOT_FOUND", "Listagem não encontrada."));
+		// O importador pode anunciar o mesmo item de novo com outro id de listagem.
+		if (listings.hasPurchaseForItem(buyerId, listing.itemKind().name(), listing.itemId())) {
+			throw new ApiException(409, "ITEM_ALREADY_OWNED", "Você já comprou este item. Acesse Minhas compras.");
+		}
 		if (listing.status() != MarketplaceListing.Status.ACTIVE) {
 			throw new ApiException(409, "LISTING_NOT_ACTIVE", "Esta listagem não está mais aberta.");
 		}
@@ -144,14 +152,18 @@ public class MarketplaceService {
 			"Compra no marketplace: " + listing.title());
 		MarketplacePurchase purchase = listings
 			.savePurchase(MarketplacePurchase.create(listing.id(), buyerId, listing.sellerId(), listing.price(), now));
-		listings.saveListing(listing.markSold(now));
+		// Temas são digitais: a oferta permanece aberta para outros compradores e para
+		// uma nova compra após reembolso. A posse é verificada por comprador e item.
+		if (listing.itemKind() != MarketplaceListing.ItemKind.THEME) {
+			listings.saveListing(listing.markSold(now));
+		}
 		return purchase;
 	}
 
 	/** O comprador confirma (instalou e está satisfeito): criador recebe − 10%. */
 	@Transactional
 	public MarketplacePurchase confirm(String purchaseId, String buyerId) {
-		MarketplacePurchase purchase = purchase(purchaseId);
+		MarketplacePurchase purchase = purchaseForUpdate(purchaseId);
 		if (!purchase.ownedBy(buyerId)) {
 			throw new ApiException(403, "NOT_THE_BUYER", "Só quem comprou confirma a compra.");
 		}
@@ -165,7 +177,7 @@ public class MarketplaceService {
 	/** O comprador pede reembolso dentro da janela: devolve 100%. */
 	@Transactional
 	public MarketplacePurchase refund(String purchaseId, String buyerId) {
-		MarketplacePurchase purchase = purchase(purchaseId);
+		MarketplacePurchase purchase = purchaseForUpdate(purchaseId);
 		if (!purchase.ownedBy(buyerId)) {
 			throw new ApiException(403, "NOT_THE_BUYER", "Só quem comprou pede o reembolso.");
 		}
@@ -173,6 +185,13 @@ public class MarketplaceService {
 		MarketplacePurchase refunded = purchase.refund(now);
 		coins.escrowRefund(purchase.buyerId(), purchase.price(), escrowRef(purchase),
 			"Reembolso de compra no marketplace");
+		// Compatibilidade com compras antigas, cujos anúncios saíam da loja ao vender.
+		listings.findListingByIdForUpdate(purchase.listingId()).ifPresent(listing -> {
+			if (listing.status() == MarketplaceListing.Status.SOLD
+					&& listings.findActiveByItem(listing.itemKind().name(), listing.itemId()).isEmpty()) {
+				listings.saveListing(listing.reopen(now));
+			}
+		});
 		return listings.savePurchase(refunded);
 	}
 
@@ -187,9 +206,11 @@ public class MarketplaceService {
 			if (purchase.decisionExpired(now)) {
 				try {
 					perPurchase.executeWithoutResult(status -> {
-						coins.escrowRelease(purchase.sellerId(), purchase.price(), escrowRef(purchase),
+						MarketplacePurchase current = purchaseForUpdate(purchase.id());
+						if (!current.decisionExpired(now)) return;
+						coins.escrowRelease(current.sellerId(), current.price(), escrowRef(current),
 							"Venda no marketplace (liberação automática)");
-						listings.savePurchase(purchase.release(now));
+						listings.savePurchase(current.release(now));
 					});
 				} catch (RuntimeException ignored) {
 					// a próxima rodada tenta de novo; nada aqui pode derrubar o worker
@@ -287,6 +308,11 @@ public class MarketplaceService {
 
 	private MarketplacePurchase purchase(String id) {
 		return listings.findPurchaseById(id)
+			.orElseThrow(() -> new ApiException(404, "PURCHASE_NOT_FOUND", "Compra não encontrada."));
+	}
+
+	private MarketplacePurchase purchaseForUpdate(String id) {
+		return listings.findPurchaseByIdForUpdate(id)
 			.orElseThrow(() -> new ApiException(404, "PURCHASE_NOT_FOUND", "Compra não encontrada."));
 	}
 

@@ -31,9 +31,8 @@ class SearchContractController {
 	@RateLimiter(name = "search")
 	PageResponse<SearchResultView> search(@RequestParam(required = false) String q,
 			@RequestParam(required = false) List<String> types, @RequestParam(defaultValue = "10") int limit,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		List<SearchResult> results = searchService.search(q, types, limit, viewerId(userId, sessionToken));
+		List<SearchResult> results = searchService.search(q, types, limit, viewerId(sessionToken));
 		var items = results.stream()
 			.map(r -> new SearchResultView(r.id(), r.type(), r.title(), r.subtitle(), r.image(), r.href()))
 			.toList();
@@ -41,9 +40,9 @@ class SearchContractController {
 	}
 
 	/** Sessao opcional: a busca e publica, mas quem esta logado nao ve usuario bloqueado. */
-	private String viewerId(String userId, String sessionToken) {
+	private String viewerId(String sessionToken) {
 		try {
-			return currentUserResolver.resolve(userId, sessionToken).id().value();
+			return currentUserResolver.resolve(sessionToken).id().value();
 		}
 		catch (RuntimeException exception) {
 			return null;

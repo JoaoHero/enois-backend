@@ -64,8 +64,11 @@ pesquisa — é abuso.
 - **Credibilidade e identidade** são decididas só no servidor; o cliente não as declara.
 - **Sem automação de interação social**: nada de publicar post/comentar/curtir automaticamente
   (ver `docs/PUBLISHING_POLICY.md`).
-- **Sessão e credencial com hash**, revogação de sessão e de credencial de integração, segredos em
-  gerenciador/secret do ambiente — nunca no repositório, no bundle do frontend ou nos logs.
+- **Sessão e credencial com hash**, revogação de sessão e de credencial de integração.
+- **Segredos só por variável de ambiente/secret do ambiente**: nenhuma propriedade de chave tem valor
+  padrão no código, e o deploy não grava segredo em manifesto versionado. Isso vale daqui em diante:
+  o histórico do git já conteve chaves de terceiros, e toda chave que passou pelo repositório é
+  tratada como comprometida e rotacionada — nunca reaproveitada.
 - **Motor de risco** (`shared/risk`): sinais combinados viram nível, e a decisão fica registrada
   com o motivo e a versão da regra (ver `docs/PLANO_SEGURANCA_HUMANA.md`).
 - **Defesa contra varredura** (`shared/security/AbuseGuardFilter`): quem erra demais em pouco tempo

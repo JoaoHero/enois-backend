@@ -43,14 +43,17 @@ class MediaStorageProxyController {
 	private final MediaAssetRepository assets;
 	private final CurrentUserResolver currentUserResolver;
 	private final com.socialcoisa.rede.media.application.MediaMetadataSanitizer sanitizer;
+	private final com.socialcoisa.rede.media.application.MediaImageModerationService imageModeration;
 
 	MediaStorageProxyController(ObjectProvider<MediaObjectStore> storeProvider, MediaAssetRepository assets,
 			CurrentUserResolver currentUserResolver,
-			com.socialcoisa.rede.media.application.MediaMetadataSanitizer sanitizer) {
+			com.socialcoisa.rede.media.application.MediaMetadataSanitizer sanitizer,
+			com.socialcoisa.rede.media.application.MediaImageModerationService imageModeration) {
 		this.storeProvider = storeProvider;
 		this.assets = assets;
 		this.currentUserResolver = currentUserResolver;
 		this.sanitizer = sanitizer;
+		this.imageModeration = imageModeration;
 	}
 
 	private MediaObjectStore store() {
@@ -65,6 +68,11 @@ class MediaStorageProxyController {
 	 * Leitura publica, como o `GET /media/{id}`: a chave so aparece em conteudo que qualquer
 	 * pessoa ja pode ver, e `<img src>` nao manda `Origin` — exigir sessao aqui deixaria o post
 	 * sem imagem para quem nao entrou.
+	 *
+	 * <p>Sem migracao oportunista: a leitura e streaming direto do storage ativo. Objetos antigos
+	 * gravados no ImageKit continuam servidos pelas URLs dele gravadas no banco; objetos novos
+	 * nascem no S3 ja limpos (a sanitizacao acontece na escrita). Nada de escrita dentro de
+	 * leitura — era isso que causava hangs de 30-60s no primeiro acesso (25/10).</p>
 	 */
 	@GetMapping("/{*key}")
 	ResponseEntity<StreamingResponseBody> read(@PathVariable String key,
@@ -79,38 +87,13 @@ class MediaStorageProxyController {
 		}
 		MediaAsset asset = assets.findById(mediaIdOf(objectKey)).orElse(null);
 		String mime = asset != null ? asset.mimeType() : object.contentType();
-		// Limpeza oportunista na LEITURA: objetos antigos (gravados antes da limpeza) são
-		// sanitizados e, se mudaram, regravados com a mesma chave. Range (vídeo) não entra aqui.
-		if (range == null && object.length() > 0
-				&& object.length() <= com.socialcoisa.rede.media.application.MediaMetadataSanitizer.MAX_IN_MEMORY
-				&& sanitizer.supportsInMemory(mime)) {
-			byte[] raw;
-			try (var body = object.body()) {
-				raw = body.readAllBytes();
-			}
-			catch (java.io.IOException readFailed) {
-				throw new ApiException(502, "MEDIA_READ_FAILED", "Nao foi possivel ler a midia do storage.");
-			}
-			byte[] clean = sanitizer.sanitize(raw, mime, asset != null ? asset.fileName() : objectKey);
-			if (!java.util.Arrays.equals(raw, clean)) {
-				try {
-					store().write(objectKey, mime, clean.length, new java.io.ByteArrayInputStream(clean));
-				}
-				catch (RuntimeException rewriteFailed) {
-					// Serve o conteúdo limpo mesmo se a regravação falhar.
-				}
-			}
-			byte[] served = clean;
-			return ResponseEntity.ok()
-				.header(HttpHeaders.CONTENT_TYPE, mime == null ? "application/octet-stream" : mime)
-				.header(HttpHeaders.ACCEPT_RANGES, "bytes")
-				.header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000, immutable")
-				.header(HttpHeaders.CONTENT_LENGTH, String.valueOf(served.length))
-				.body(output -> output.write(served));
-		}
+		// Only the media types the upload accepts render inline; anything else (legacy objects with an
+		// unexpected type) is served as an opaque download. nosniff comes from SecurityHeadersFilter.
+		boolean inline = com.socialcoisa.rede.media.application.MediaService.isAllowedMimeType(mime);
 		ResponseEntity.BodyBuilder response = ResponseEntity
 			.status(object.contentRange() == null ? HttpStatus.OK : HttpStatus.PARTIAL_CONTENT)
-			.header(HttpHeaders.CONTENT_TYPE, mime == null ? "application/octet-stream" : mime)
+			.header(HttpHeaders.CONTENT_TYPE, inline ? mime : "application/octet-stream")
+			.header(HttpHeaders.CONTENT_DISPOSITION, inline ? "inline" : "attachment")
 			.header(HttpHeaders.ACCEPT_RANGES, "bytes")
 			// A chave tem uuid: o conteúdo daquele endereço nunca muda, então pode ficar em cache.
 			.header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000, immutable");
@@ -137,7 +120,7 @@ class MediaStorageProxyController {
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestHeader(value = HttpHeaders.CONTENT_TYPE, required = false) String contentType,
 			HttpServletRequest request) {
-		CurrentUser user = currentUserResolver.resolve(null, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String objectKey = objectKey(key);
 		MediaAsset asset = assets.findById(mediaIdOf(objectKey))
 			.orElseThrow(() -> new ApiException(404, "MEDIA_NOT_FOUND", "Midia nao encontrada."));
@@ -159,8 +142,7 @@ class MediaStorageProxyController {
 						"Arquivo grande demais para a limpeza de metadados.");
 				}
 				// Vídeo/áudio grande: arquivo temporário + ffmpeg, sem carregar tudo em memória.
-				java.nio.file.Path sanitized = sanitizer.sanitizeToFile(request.getInputStream(), mime,
-					asset.fileName());
+				java.nio.file.Path sanitized = sanitizer.sanitizeToFile(request.getInputStream(), mime, objectKey);
 				try {
 					try (var body = java.nio.file.Files.newInputStream(sanitized)) {
 						store().write(objectKey, mime, java.nio.file.Files.size(sanitized), body);
@@ -173,7 +155,8 @@ class MediaStorageProxyController {
 			else {
 				byte[] raw = request.getInputStream().readAllBytes();
 				// LIMPEZA NA ESCRITA: EXIF/GPS/XMP/IPTC não chegam ao bucket.
-				byte[] clean = sanitizer.sanitize(raw, mime, asset.fileName());
+				byte[] clean = sanitizer.sanitize(raw, mime, objectKey);
+				imageModeration.verifyBeforeStorage(clean, mime);
 				store().write(objectKey, mime, clean.length, new java.io.ByteArrayInputStream(clean));
 			}
 		}

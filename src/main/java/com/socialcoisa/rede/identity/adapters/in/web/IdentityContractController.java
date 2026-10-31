@@ -46,18 +46,16 @@ class IdentityContractController {
 	}
 
 	@GetMapping
-	IdentityStatusView status(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	IdentityStatusView status(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return view(identityService.current(user.id().value()));
 	}
 
 	@PostMapping("/verification")
-	ResponseEntity<String> start(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<String> start(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@RequestBody(required = false) StartVerificationRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String consent = request == null ? null : request.consentVersion();
 		Map<String, Object> payload = Map.of("consent", consent == null ? "" : consent);
 		String hash = idempotency.hash(payload);
@@ -71,17 +69,15 @@ class IdentityContractController {
 	}
 
 	@PostMapping("/verification/refresh")
-	IdentityStatusView refresh(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	IdentityStatusView refresh(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return view(identityService.refresh(user.id().value()));
 	}
 
 	@DeleteMapping("/verification")
-	ResponseEntity<String> revoke(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<String> revoke(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String hash = idempotency.hash(Map.of("op", "revoke-identity"));
 		return idempotency.execute(user.id(), "DELETE", "/api/identity/verification", idempotencyKey, hash,
 			() -> new CommandResponse(200, view(identityService.revoke(user.id().value()))));
@@ -89,9 +85,8 @@ class IdentityContractController {
 
 	/** Elegibilidade para publicar vaga, com o que falta — a decisao final e sempre do backend. */
 	@GetMapping("/eligibility")
-	JobPublishingPolicy.Decision eligibility(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	JobPublishingPolicy.Decision eligibility(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return jobPublishingPolicy.evaluate(user.id().value());
 	}
 

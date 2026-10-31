@@ -20,12 +20,14 @@ public class SupportWebhookService {
 	private static final Logger LOG = LoggerFactory.getLogger(SupportWebhookService.class);
 
 	private final SupportRequestRepository repository;
+	private final SupportThreadService thread;
 	private final SupportStatusNotifier notifier;
 	private final SupportGithubConfig config;
 
-	public SupportWebhookService(SupportRequestRepository repository, SupportStatusNotifier notifier,
-			SupportGithubConfig config) {
+	public SupportWebhookService(SupportRequestRepository repository, SupportThreadService thread,
+			SupportStatusNotifier notifier, SupportGithubConfig config) {
 		this.repository = repository;
+		this.thread = thread;
 		this.notifier = notifier;
 		this.config = config;
 	}
@@ -34,6 +36,21 @@ public class SupportWebhookService {
 	public boolean acceptsRepository(String fullName) {
 		String expected = config.repository();
 		return !StringUtils.hasText(expected) || expected.equalsIgnoreCase(fullName);
+	}
+
+	/**
+	 * Comentário novo na issue vira mensagem no painel. O id do comentário é a chave de
+	 * deduplicação: o eco do comentário que o próprio Énóis publicou não entra duas vezes.
+	 */
+	@Transactional
+	public boolean applyIssueComment(int issueNumber, long commentId, String authorLogin, String body) {
+		SupportRequest request = repository.findByGithubIssueNumber(issueNumber).orElse(null);
+		if (request == null) {
+			LOG.warn("Comentário do GitHub na issue #{} sem ticket de suporte correspondente", issueNumber);
+			return false;
+		}
+		thread.addFromGithub(request.id(), commentId, authorLogin, body);
+		return true;
 	}
 
 	/** Aplica o estado da issue. Devolve false só quando nenhum ticket corresponde ao número. */

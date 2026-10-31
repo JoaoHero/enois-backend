@@ -21,6 +21,7 @@ import com.socialcoisa.rede.moderation.application.SanctionService;
 import com.socialcoisa.rede.moderation.domain.ReportReason;
 import com.socialcoisa.rede.moderation.domain.TargetType;
 import com.socialcoisa.rede.shared.web.ApiException;
+import com.socialcoisa.rede.shared.web.TextFieldLimit;
 
 /**
  * Contestação de transferência (golpe): a vítima contesta dentro de 7 dias e a disputa
@@ -67,6 +68,9 @@ public class CoinDisputeService {
 	/** A vítima (remetente) contesta a transferência. */
 	@Transactional
 	public CoinDispute contest(String senderId, String entryRef, String reason, String description) {
+		// Os tetos sao os das COLUNAS (`coin_disputes.reason varchar(400)`, `description varchar(1000)`).
+		TextFieldLimit.check("DISPUTE_FIELD_TOO_LONG", "motivo", reason, 400);
+		TextFieldLimit.check("DISPUTE_FIELD_TOO_LONG", "descricao", description, 1000);
 		if (!StringUtils.hasText(reason) || !StringUtils.hasText(description) || description.trim().length() < 20) {
 			throw new ApiException(400, "CONTESTATION_DETAILS_REQUIRED",
 				"Explica o que aconteceu em pelo menos 20 caracteres.");

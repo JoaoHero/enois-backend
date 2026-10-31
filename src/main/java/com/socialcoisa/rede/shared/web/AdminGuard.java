@@ -18,11 +18,20 @@ import com.socialcoisa.rede.profile.domain.UserProfile;
 @Component
 public class AdminGuard {
 
-	/** Nomes históricos da equipe: ninguém consegue cadastrar/renomear para eles. */
-	public static final Set<String> RESERVED_USERNAMES = Set.of("aminadojava", "mrfoxxo");
+	/**
+	 * Team handles and staff-like names: nobody can sign up or rename to them, so a profile cannot
+	 * impersonate the team even though the name grants no permission.
+	 */
+	public static final Set<String> RESERVED_USERNAMES = Set.of("aminadojava", "mrfoxxo", "admin", "admins",
+		"administrator", "administrador", "administracao", "root", "superuser", "sysadmin", "system", "sistema",
+		"staff", "equipe", "moderator", "moderador", "moderacao", "mod", "support", "suporte", "security",
+		"seguranca", "enois", "enois-admin", "enois-team", "enois-suporte", "official", "oficial");
 
 	private final UserProfileRepository profileRepository;
-	/** SOMENTE TESTES: allowlist de e-mail ligada por `rede.admin.bootstrap-enabled` (default false). */
+	/**
+	 * TESTS ONLY: e-mail allowlist enabled by `rede.admin.bootstrap-enabled` (default false, empty
+	 * list). Never enable it in a deployed profile: production admins are `users.is_admin` rows.
+	 */
 	private final Set<String> bootstrapEmails;
 
 	public AdminGuard(UserProfileRepository profileRepository,

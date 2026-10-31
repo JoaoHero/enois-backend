@@ -4,13 +4,20 @@ import java.time.Instant;
 
 /**
  * Sancao de um usuario por moderacao. RESTRICTION trava publicar/comentar e pode ser revista
- * (recurso); BAN e permanente e vem do recurso NEGADO por um humano — a IA nunca bane.
+ * (recurso); SUSPENDED bloqueia como o BAN mas tem prazo de reversao (graca de 7 dias antes de
+ * virar BAN definitivo); BAN e permanente e vem do recurso NEGADO por um humano.
  */
 public record UserSanction(String id, String userId, String reportId, SanctionType type, String reason,
 		SanctionStatus status, Instant createdAt, Instant removedAt, String removedBy) {
 
 	public static UserSanction create(String id, String userId, String reportId, String reason, Instant now) {
 		return new UserSanction(id, userId, reportId, SanctionType.RESTRICTION, reason, SanctionStatus.ACTIVE,
+			now, null, null);
+	}
+
+	/** Suspensao com prazo: bloqueia como o BAN; sem recurso no prazo, vira BAN definitivo. */
+	public static UserSanction suspended(String id, String userId, String reportId, String reason, Instant now) {
+		return new UserSanction(id, userId, reportId, SanctionType.SUSPENDED, reason, SanctionStatus.ACTIVE,
 			now, null, null);
 	}
 
@@ -26,6 +33,11 @@ public record UserSanction(String id, String userId, String reportId, SanctionTy
 	/** Banimento (BAN ou PERMABAN): sem sessao nova e sem recurso. */
 	public boolean isBan() {
 		return type == SanctionType.BAN || type == SanctionType.PERMABAN;
+	}
+
+	/** Bloqueio total de acesso (SUSPENDED, BAN ou PERMABAN): sem sessao nova. */
+	public boolean isBlocked() {
+		return isBan() || type == SanctionType.SUSPENDED;
 	}
 
 	/**

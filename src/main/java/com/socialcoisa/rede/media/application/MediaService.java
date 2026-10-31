@@ -42,12 +42,26 @@ public class MediaService implements CreateMediaUploadUseCase, GetMediaAssetUseC
 	/** Janela do upload direto ao S3 e da limpeza do asset pendente (arquivos de ate 500MB). */
 	private static final Duration UPLOAD_WINDOW = Duration.ofMinutes(60);
 
-	/** Tipos que podem ser servidos pelo CDN. HTML/SVG/JS ativo ficam de fora de propósito. */
-	private static final java.util.Set<String> ALLOWED_MIME_TYPES = java.util.Set.of(
-		"image/jpeg", "image/png", "image/gif", "image/webp", "image/avif",
-		"video/mp4", "video/webm", "video/quicktime",
-		"audio/mpeg", "audio/ogg", "audio/wav", "audio/webm",
-		"application/pdf");
+	/**
+	 * Types that may be served by the CDN, each with the extension of the server-generated object
+	 * name. HTML/SVG/active JS stay out on purpose.
+	 */
+	private static final java.util.Map<String, String> ALLOWED_MIME_TYPES = java.util.Map.ofEntries(
+		java.util.Map.entry("image/jpeg", ".jpg"), java.util.Map.entry("image/png", ".png"),
+		java.util.Map.entry("image/gif", ".gif"), java.util.Map.entry("image/webp", ".webp"),
+		java.util.Map.entry("image/avif", ".avif"),
+		java.util.Map.entry("video/mp4", ".mp4"), java.util.Map.entry("video/webm", ".webm"),
+		java.util.Map.entry("video/quicktime", ".mov"),
+		java.util.Map.entry("audio/mpeg", ".mp3"), java.util.Map.entry("audio/ogg", ".ogg"),
+		java.util.Map.entry("audio/wav", ".wav"), java.util.Map.entry("audio/webm", ".weba"),
+		java.util.Map.entry("application/pdf", ".pdf"));
+	private static final java.util.Set<String> IMAGE_MIME_TYPES = java.util.Set.of(
+		"image/jpeg", "image/png", "image/gif", "image/webp", "image/avif");
+	/** Upload kinds narrower than the general list; any other purpose (posts, messages) uses the full list. */
+	private static final java.util.Map<String, java.util.Set<String>> MIME_TYPES_BY_PURPOSE = java.util.Map.of(
+		"AVATAR", IMAGE_MIME_TYPES, "BANNER", IMAGE_MIME_TYPES, "COVER", IMAGE_MIME_TYPES,
+		"BADGE", IMAGE_MIME_TYPES, "GAME_ICON", IMAGE_MIME_TYPES, "GAME_BANNER", IMAGE_MIME_TYPES,
+		"MENTOR_BANNER", IMAGE_MIME_TYPES, "RESUME", java.util.Set.of("application/pdf"));
 
 	private final MediaAssetRepository mediaAssetRepository;
 	private final MediaDeletionJobRepository mediaDeletionJobRepository;
@@ -72,16 +86,18 @@ public class MediaService implements CreateMediaUploadUseCase, GetMediaAssetUseC
 	@Override
 	@Transactional
 	public MediaUploadView createUpload(CreateMediaUploadCommand command) {
-		validate(command);
+		String mimeType = validate(command);
 		// URGENTE (19/10/2026): o ImageKit foi comprometido e NAO recebe mais arquivo novo.
 		// Upload so existe com o S3 configurado (REDE_MEDIA_STORAGE=s3 + bucket); sem isso a
 		// resposta e 503 — de proposito, nunca um caminho de escrita no provedor antigo.
 		MediaUploadSigner signer = uploadSigner.orElseThrow(() -> new ApiException(503, "UPLOADS_DISABLED",
 			"O envio de midia esta temporariamente desativado enquanto o armazenamento e migrado."));
 		String mediaId = newId("media");
-		String objectKey = storageUrlFactory.objectKey(mediaId, command.fileName().trim());
+		// The object name is generated here: the client filename is kept as metadata only and never
+		// becomes part of the storage key or the public URL.
+		String objectKey = storageUrlFactory.objectKey(mediaId, "file" + ALLOWED_MIME_TYPES.get(mimeType));
 		MediaAsset asset = MediaAsset.pending(mediaId, command.ownerId(), command.fileName().trim(),
-			command.mimeType().trim(), command.size(), normalize(command.purpose()), objectKey,
+			mimeType, command.size(), normalize(command.purpose()), objectKey,
 			storageUrlFactory.cdnUrl(objectKey), clock.instant(), clock.instant().plus(UPLOAD_WINDOW),
 			storageUrlFactory.provider());
 		MediaAsset saved = mediaAssetRepository.save(asset);
@@ -171,7 +187,8 @@ public class MediaService implements CreateMediaUploadUseCase, GetMediaAssetUseC
 			.orElseThrow(() -> new ApiException(404, "MEDIA_NOT_FOUND", "Midia nao encontrada."));
 	}
 
-	private void validate(CreateMediaUploadCommand command) {
+	/** Returns the normalized MIME type (lower case, without parameters) that gets signed and stored. */
+	private String validate(CreateMediaUploadCommand command) {
 		if (command.ownerId() == null) {
 			throw new ApiException(401, "UNAUTHENTICATED", "Usuario autenticado ausente.");
 		}
@@ -186,9 +203,15 @@ public class MediaService implements CreateMediaUploadUseCase, GetMediaAssetUseC
 		if (semicolon >= 0) {
 			mime = mime.substring(0, semicolon).trim();
 		}
-		if (!ALLOWED_MIME_TYPES.contains(mime)) {
+		if (!ALLOWED_MIME_TYPES.containsKey(mime)) {
 			throw new ApiException(400, "MEDIA_TYPE_NOT_ALLOWED",
 				"Tipo de arquivo nao permitido. Envie imagem, video, audio ou PDF.");
+		}
+		String purpose = command.purpose() == null ? "" : command.purpose().trim().toUpperCase(java.util.Locale.ROOT);
+		java.util.Set<String> allowedForPurpose = MIME_TYPES_BY_PURPOSE.get(purpose);
+		if (allowedForPurpose != null && !allowedForPurpose.contains(mime)) {
+			throw new ApiException(400, "MEDIA_TYPE_NOT_ALLOWED",
+				"Tipo de arquivo nao permitido para este envio.");
 		}
 		if (command.size() <= 0) {
 			throw new ApiException(400, "INVALID_MEDIA_SIZE", "Tamanho da midia deve ser maior que zero.");
@@ -197,6 +220,17 @@ public class MediaService implements CreateMediaUploadUseCase, GetMediaAssetUseC
 			throw new ApiException(400, "MEDIA_TOO_LARGE",
 				"Mídia deve ter no máximo " + (MAX_MEDIA_BYTES / (1024L * 1024L)) + "MB.");
 		}
+		return mime;
+	}
+
+	/** Whether a stored type may be rendered inline by the browser (same list the upload accepts). */
+	public static boolean isAllowedMimeType(String mimeType) {
+		if (mimeType == null) {
+			return false;
+		}
+		int semicolon = mimeType.indexOf(';');
+		String base = semicolon >= 0 ? mimeType.substring(0, semicolon) : mimeType;
+		return ALLOWED_MIME_TYPES.containsKey(base.trim().toLowerCase(java.util.Locale.ROOT));
 	}
 
 	private String normalize(String value) {

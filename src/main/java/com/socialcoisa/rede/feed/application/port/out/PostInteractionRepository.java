@@ -29,12 +29,6 @@ public interface PostInteractionRepository {
 
 	boolean removeReaction(PostId postId, UserId userId);
 
-	/** Reações recebidas por um autor (em posts dele, excluídas as próprias) — recompensa C2. */
-	long countReactionsReceived(String authorId);
-
-	/** Reações recebidas pelo autor desde um instante (teto diário da recompensa). */
-	long countReactionsReceivedSince(String authorId, java.time.Instant since);
-
 	boolean addSave(String id, PostId postId, UserId userId, Instant createdAt);
 
 	boolean removeSave(PostId postId, UserId userId);
@@ -42,6 +36,9 @@ public interface PostInteractionRepository {
 	boolean addShare(String id, PostId postId, UserId userId, Instant createdAt);
 
 	List<String> findSavedPostIdsByUserId(UserId userId);
+
+	/** Post IDs que o usuario reagiu, do mais recente ao mais antigo (limitado). */
+	List<String> findReactedPostIdsByUserId(UserId userId, int limit);
 
 	Map<PostId, ReactionType> findReactionsByUserAndPostIds(UserId userId, Collection<PostId> postIds);
 
@@ -64,8 +61,9 @@ public interface PostInteractionRepository {
 	Map<String, ReactionType> findCommentReactionsByUser(UserId userId, Collection<String> commentIds);
 	List<ReactionSummary> findReactionsByCommentId(String commentId);
 
-	/** Contagem total de reacoes por comentario (em batch, pra nao fazer N+1). */
-	Map<String, Integer> countCommentReactions(Collection<String> commentIds);
+	/** Contagem de reacoes por comentario e por tipo (em batch, pra desenhar as pilulas sem N+1). */
+	Map<String, Map<ReactionType, Long>> countCommentReactionsByType(Collection<String> commentIds,
+			Collection<String> excludedUserIds);
 
 	record ReactionSummary(String userId, ReactionType type, Instant createdAt) {
 	}

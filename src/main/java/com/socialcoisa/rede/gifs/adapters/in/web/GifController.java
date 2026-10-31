@@ -34,11 +34,10 @@ class GifController {
 	}
 
 	@GetMapping("/search")
-	GifSearchResult search(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	GifSearchResult search(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestParam(value = "q", required = false) String query,
 			@RequestParam(value = "limit", defaultValue = "24") int limit) {
-		currentUserResolver.resolve(userId, sessionToken);
+		currentUserResolver.resolve(sessionToken);
 		String normalized = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
 		return gifSearchService.search(normalized, Math.clamp(limit, 1, MAX_LIMIT));
 	}

@@ -28,14 +28,17 @@ import com.socialcoisa.rede.shared.web.ApiException;
  * quando o original é apagado.
  *
  * Não republicamos conteúdo que não pode circular fora do seu contexto: post de comunidade ou
- * canal privado, artigo (o corpo mora em outra tabela), página HTML, blog e publicação
- * corporativa; MOMENT é efêmero e não se repete.
+ * canal privado e publicação corporativa; MOMENT é efêmero e não se repete.
+ *
+ * Artigo, página HTML e blog só circulam como citação (com opinião): o corpo deles mora fora do
+ * post, então uma cópia sairia vazia. Por isso a citação é gravada como INSIGHT, senão herdaria
+ * um tipo que promete um corpo que ela não tem.
  */
 @Service
 public class RepostPostService {
 
-	private static final Set<PostType> NOT_REPOSTABLE = Set.of(PostType.BLOG, PostType.BUSINESS,
-		PostType.PAGE, PostType.ARTICLE, PostType.MOMENT);
+	private static final Set<PostType> NOT_REPOSTABLE = Set.of(PostType.BUSINESS, PostType.MOMENT);
+	private static final Set<PostType> OPINION_ONLY = Set.of(PostType.ARTICLE, PostType.BLOG, PostType.PAGE);
 	private static final int PER_HOUR = 30;
 
 	private final PostRepository posts;
@@ -87,11 +90,17 @@ public class RepostPostService {
 				"A opiniao do repost deve ter no maximo 600 caracteres.");
 		}
 		boolean withOpinion = !cleanOpinion.isBlank();
+		boolean opinionOnly = OPINION_ONLY.contains(root.type());
+		if (opinionOnly && !withOpinion) {
+			throw new ApiException(400, "OPINION_REQUIRED",
+				"Este tipo de publicacao so pode ser republicado com uma opiniao.");
+		}
 		String username = profiles.findById(root.authorId().value())
 			.map(profile -> profile.username())
 			.orElse(null);
 		Post copy = Post.publish(new PostId("post_" + UUID.randomUUID().toString().replace("-", "")),
-			new UserId(userId), root.type(), withOpinion ? cleanOpinion : root.content(), null,
+			new UserId(userId), opinionOnly ? PostType.INSIGHT : root.type(),
+			withOpinion ? cleanOpinion : root.content(), null,
 			withOpinion ? List.of() : root.tags(), withOpinion ? List.of() : root.mediaIds(), null,
 			withOpinion ? null : root.topic(), clock.instant(), AuthorIdentity.SOCIAL)
 			.markRepostOf(root.id().value(), username, withOpinion);

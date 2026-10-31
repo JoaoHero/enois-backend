@@ -51,18 +51,4 @@ public class CurrentUserResolver {
 		});
 		return user;
 	}
-
-	public CurrentUser resolve(String userId, String sessionToken) {
-		if (StringUtils.hasText(sessionToken)) {
-			return resolve(sessionToken);
-		}
-		throw new ApiException(401, "UNAUTHENTICATED", "Sessao invalida ou expirada.");
-	}
-
-	public CurrentUser resolveById(String userId) {
-		if (!StringUtils.hasText(userId)) {
-			throw new ApiException(401, "UNAUTHENTICATED", "Usuario autenticado ausente.");
-		}
-		return new CurrentUser(new UserId(userId.trim()));
-	}
 }

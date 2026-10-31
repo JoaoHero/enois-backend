@@ -41,12 +41,14 @@ public class PublicReadRateLimitFilter extends OncePerRequestFilter {
 	private final Map<String, Deque<Long>> hits = new ConcurrentHashMap<>();
 	private final Clock clock;
 	private final ClientIpResolver ipResolver;
+	private final RateLimitSessions sessions;
 	private final int perMinute;
 
-	public PublicReadRateLimitFilter(Clock clock, ClientIpResolver ipResolver,
+	public PublicReadRateLimitFilter(Clock clock, ClientIpResolver ipResolver, RateLimitSessions sessions,
 			@Value("${rede.rate.public-read-per-minute:600}") int perMinute) {
 		this.clock = clock;
 		this.ipResolver = ipResolver;
+		this.sessions = sessions;
 		// O valor configurado vale como esta: o piso de 10 antigo ignorava o teste e qualquer
 		// ajuste de operacao abaixo disso.
 		this.perMinute = Math.max(1, perMinute);
@@ -64,19 +66,31 @@ public class PublicReadRateLimitFilter extends OncePerRequestFilter {
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
 			throws ServletException, IOException {
-		String ip = ipResolver.resolve(request);
+		// Logado tem balde próprio (sessão); anônimo divide o do IP — é a enumeração anônima
+		// que este teto existe para conter, não o usuário navegando entre perfis.
+		// Only a live session earns its own bucket, keyed by the user; anything else counts against the IP.
 		long now = clock.millis();
-		Deque<Long> marks = hits.computeIfAbsent(ip == null ? "desconhecido" : ip, key -> new ArrayDeque<>());
+		String ip = ipResolver.resolve(request);
+		String ipKey = "ip:" + ip;
+		String key = ipKey;
+		String who = ipKey;
+		String session = request.getHeader("X-Session-Token");
+		if (org.springframework.util.StringUtils.hasText(session)) {
+			String userId = sessions.userId(session, ip);
+			if (userId != null) {
+				key = "u:" + userId;
+				who = "sessao";
+			}
+		}
+		Deque<Long> marks = hits.computeIfAbsent(key, k -> new ArrayDeque<>());
 		synchronized (marks) {
 			while (!marks.isEmpty() && marks.peekFirst() < now - WINDOW_MS) {
 				marks.pollFirst();
 			}
 			if (marks.size() >= perMinute) {
-				LOG.warn("Leitura pública acima do teto (ip={}, rota={})", ip, request.getRequestURI());
-				response.setStatus(429);
-				response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-				response.getWriter().write("{\"code\":\"ENUMERATION_GUARD\","
-					+ "\"message\":\"Muitas consultas de perfis em pouco tempo. Tente de novo em instantes.\"}");
+				LOG.warn("Leitura pública acima do teto (chave={}, rota={})", who, request.getRequestURI());
+				RateLimitResponses.send(request, response, 60, "ENUMERATION_GUARD",
+					"Muitas consultas de perfis em pouco tempo. Tente de novo em instantes.");
 				return;
 			}
 			marks.addLast(now);
@@ -86,4 +100,5 @@ public class PublicReadRateLimitFilter extends OncePerRequestFilter {
 		}
 		chain.doFilter(request, response);
 	}
+
 }

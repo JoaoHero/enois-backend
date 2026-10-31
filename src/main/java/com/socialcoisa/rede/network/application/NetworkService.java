@@ -47,6 +47,10 @@ public class NetworkService {
 		if (blockRepository.hiddenBetween(requesterUserId, receiverUserId)) {
 			throw new ApiException(403, "BLOCKED", "Esta conexao nao esta disponivel.");
 		}
+		// Without this an unknown id left a pending request (and a notification) for nobody.
+		if (userProfileRepository.findById(receiverUserId).isEmpty()) {
+			throw new ApiException(404, "USER_NOT_FOUND", "Usuario nao encontrado.");
+		}
 		var existing = connectionRepository.findBetweenUsers(requesterUserId, receiverUserId);
 		if (existing.isPresent()) {
 			var conn = existing.get();
@@ -93,7 +97,15 @@ public class NetworkService {
 			throw new ApiException(403, "BLOCKED", "Esta conexao nao esta disponivel.");
 		}
 		var accepted = connection.accept(clock.instant());
-		connectionRepository.save(accepted);
+		if (connectionRepository.markAccepted(connection.id(), accepted.acceptedAt()) == 0) {
+			// Outra chamada aceitou (ou removeu) a mesma solicitação primeiro. Não repete a
+			// notificação e devolve o estado que venceu a corrida.
+			var current = connectionRepository.findBetweenUsers(targetUserId, currentUserId).orElse(accepted);
+			if (current.status() != ConnectionStatus.ACCEPTED) {
+				throw new ApiException(409, "INVALID_STATUS", "Solicitacao de conexao nao esta mais pendente.");
+			}
+			return current;
+		}
 		userProfileRepository.findById(currentUserId).ifPresent(accepter ->
 			notificationService.create(targetUserId, "CONNECTION_ACCEPTED", currentUserId,
 				"Conexão aceita",
@@ -111,14 +123,22 @@ public class NetworkService {
 		if (connection.status() == ConnectionStatus.REMOVED) {
 			return;
 		}
-		var removed = connection.remove(clock.instant());
-		connectionRepository.save(removed);
+		connectionRepository.markRemoved(connection.id(), clock.instant());
 	}
 
-	public String getConnectionStatus(String currentUserId, String targetUserId) {
+	/**
+	 * Estado da conexão visto por quem consulta. O par é único e a busca olha os dois sentidos: sem
+	 * {@code requestedByMe}, quem recebeu o pedido e quem o enviou recebem o mesmo PENDING e a tela não
+	 * tem como oferecer "aceitar" a um e "cancelar" ao outro.
+	 */
+	public ConnectionState getConnectionState(String currentUserId, String targetUserId) {
 		return connectionRepository.findBetweenUsers(currentUserId, targetUserId)
-			.map(c -> c.status().name())
-			.orElse("NONE");
+			.map(c -> new ConnectionState(c.status().name(),
+				c.status() == ConnectionStatus.PENDING && c.requesterUserId().equals(currentUserId)))
+			.orElse(new ConnectionState("NONE", false));
+	}
+
+	public record ConnectionState(String status, boolean requestedByMe) {
 	}
 
 	public List<UserConnection> getConnections(String userId) {

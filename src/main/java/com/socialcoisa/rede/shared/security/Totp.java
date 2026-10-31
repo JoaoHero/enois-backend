@@ -36,20 +36,28 @@ public final class Totp {
 
 	/** Valida o codigo aceitando uma janela de passos em cada direcao. */
 	public static boolean verify(String secretBase32, String code, Instant now, int window) {
+		return matchingStep(secretBase32, code, now, window) >= 0;
+	}
+
+	/**
+	 * Time step the code belongs to, or -1 when it matches none inside the window. Callers persist
+	 * the step so the same code cannot be accepted twice.
+	 */
+	public static long matchingStep(String secretBase32, String code, Instant now, int window) {
 		if (secretBase32 == null || code == null || code.isBlank()) {
-			return false;
+			return -1;
 		}
 		String digits = code.replaceAll("\\D", "");
 		if (digits.length() != DIGITS) {
-			return false;
+			return -1;
 		}
 		long step = now.getEpochSecond() / STEP_SECONDS;
 		for (int offset = -window; offset <= window; offset++) {
 			if (digits.equals(codeAt(secretBase32, step + offset))) {
-				return true;
+				return step + offset;
 			}
 		}
-		return false;
+		return -1;
 	}
 
 	public static boolean verify(String secretBase32, String code, Instant now) {

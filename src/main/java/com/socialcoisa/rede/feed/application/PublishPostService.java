@@ -18,6 +18,8 @@ import com.socialcoisa.rede.feed.domain.Post;
 import com.socialcoisa.rede.feed.domain.PostType;
 import com.socialcoisa.rede.media.application.port.in.ValidateMediaOwnershipUseCase;
 import com.socialcoisa.rede.notifications.application.NotificationService;
+import com.socialcoisa.rede.profile.application.ContributorTagView;
+import com.socialcoisa.rede.profile.application.NameStyleView;
 import com.socialcoisa.rede.profile.domain.UserProfile;
 import com.socialcoisa.rede.shared.html.SafeHtml;
 import com.socialcoisa.rede.shared.text.PlainText;
@@ -32,7 +34,12 @@ import com.socialcoisa.rede.shared.web.ApiException;
 public class PublishPostService implements PublishPostUseCase {
 
 	/** Teto do texto do artigo — maior que o do post (1.200) porque artigo e outro formato. */
-	static final int MAX_ARTICLE_BODY = 4_000;
+	static final int MAX_ARTICLE_BODY = 10_000;
+
+	/** Enquete: de 2 a 6 alternativas, cada uma curta (cabe no cartao sem virar paragrafo). */
+	static final int MIN_POLL_OPTIONS = 2;
+	static final int MAX_POLL_OPTIONS = 6;
+	static final int MAX_POLL_OPTION_LENGTH = 120;
 
 	private final PostRepository postRepository;
 	private final ArticleRepository articleRepository;
@@ -43,6 +50,7 @@ public class PublishPostService implements PublishPostUseCase {
 	private final ValidateMediaOwnershipUseCase validateMediaOwnershipUseCase;
 	private final NotificationService notificationService;
 	private final com.socialcoisa.rede.profile.application.port.out.UserProfileRepository userProfileRepository;
+	private final com.socialcoisa.rede.contributions.application.port.out.UserSealRepository userSeals;
 	private final com.socialcoisa.rede.shared.sanctions.SanctionGate sanctionGate;
 	private final com.socialcoisa.rede.shared.risk.RiskEngine riskEngine;
 	private final com.socialcoisa.rede.shared.age.AgeGate agePolicy;
@@ -58,6 +66,7 @@ public class PublishPostService implements PublishPostUseCase {
 	private final ContentDuplicationGuard duplicationGuard;
 	/** Detecção comportamental de automação (PR #36). */
 	private final BehavioralTimingGuard behavioralTimingGuard;
+	private final com.socialcoisa.rede.feed.application.port.out.PollRepository polls;
 
 	public PublishPostService(PostRepository postRepository, ArticleRepository articleRepository,
 			IdGenerator idGenerator, Clock clock,
@@ -65,6 +74,7 @@ public class PublishPostService implements PublishPostUseCase {
 			ValidateMediaOwnershipUseCase validateMediaOwnershipUseCase,
 			NotificationService notificationService,
 			com.socialcoisa.rede.profile.application.port.out.UserProfileRepository userProfileRepository,
+			com.socialcoisa.rede.contributions.application.port.out.UserSealRepository userSeals,
 			com.socialcoisa.rede.shared.sanctions.SanctionGate sanctionGate,
 			com.socialcoisa.rede.shared.risk.RiskEngine riskEngine,
 			com.socialcoisa.rede.shared.age.AgeGate agePolicy,
@@ -75,7 +85,8 @@ public class PublishPostService implements PublishPostUseCase {
 			NewAccountCooldown newAccountCooldown,
 			UserRateLimiter userRateLimiter,
 			ContentDuplicationGuard duplicationGuard,
-			BehavioralTimingGuard behavioralTimingGuard) {
+			BehavioralTimingGuard behavioralTimingGuard,
+			com.socialcoisa.rede.feed.application.port.out.PollRepository polls) {
 		this.postRepository = postRepository;
 		this.articleRepository = articleRepository;
 		this.idGenerator = idGenerator;
@@ -85,6 +96,7 @@ public class PublishPostService implements PublishPostUseCase {
 		this.validateMediaOwnershipUseCase = validateMediaOwnershipUseCase;
 		this.notificationService = notificationService;
 		this.userProfileRepository = userProfileRepository;
+		this.userSeals = userSeals;
 		this.sanctionGate = sanctionGate;
 		this.riskEngine = riskEngine;
 		this.agePolicy = agePolicy;
@@ -96,6 +108,7 @@ public class PublishPostService implements PublishPostUseCase {
 		this.userRateLimiter = userRateLimiter;
 		this.duplicationGuard = duplicationGuard;
 		this.behavioralTimingGuard = behavioralTimingGuard;
+		this.polls = polls;
 	}
 
 	@Override
@@ -199,6 +212,10 @@ public class PublishPostService implements PublishPostUseCase {
 			// listagem (ver PostView.from). Mesma transacao do post: ou nasce inteiro, ou nao nasce.
 			articleRepository.save(saved.id(), articleBody, clock.instant());
 		}
+		if (saved.type() == PostType.POLL) {
+			// Alternativas em tabela propria, na mesma transacao: enquete sem alternativa nao existe.
+			polls.saveOptions(saved.id(), pollOptions(command));
+		}
 		feedDistributionService.distribute(saved);
 		outboxEventRepository.append("PostPublished", saved.id().value(), "{\"postId\":\"" + saved.id().value() + "\"}");
 		// O automod de spam roda fora desta transação (listener AFTER_COMMIT + executor): flood,
@@ -207,7 +224,11 @@ public class PublishPostService implements PublishPostUseCase {
 		notifyMentions(command.mentionedUserIds(), command.authorId().value(), saved.id().value(), "post");
 		UserProfile author = userProfileRepository.findById(command.authorId().value()).orElse(null);
 		if (author != null) {
-			return PostView.from(saved, author.username(), author.name(), author.avatar(), author.allBadges()).withAvatarFrame(author.avatarFrame());
+			return PostView.from(saved, author.username(), author.name(), author.avatar(), author.allBadges())
+				.withAvatarFrame(author.avatarFrame())
+				.withAuthorStyle(saved.authorIdentity() == AuthorIdentity.SOCIAL ? NameStyleView.from(author) : null)
+				.withContributor(saved.authorIdentity() == AuthorIdentity.SOCIAL && userSeals.hasActiveSeal(author.id())
+					? ContributorTagView.from(author) : null);
 		}
 		return PostView.from(saved);
 	}
@@ -305,5 +326,39 @@ public class PublishPostService implements PublishPostUseCase {
 		if (command.mediaIds() != null && command.mediaIds().stream().filter(StringUtils::hasText).distinct().count() > 5) {
 			throw new ApiException(400, "TOO_MANY_MEDIA", "Post deve ter no maximo 5 midias.");
 		}
+		// Enquete: o titulo e o content (400, ver PostContentLimits) e as alternativas sao o voto.
+		// Fora de POLL as alternativas sao ignoradas — nunca ficam guardadas como lixo.
+		if (command.type() == PostType.POLL) {
+			pollOptions(command);
+		}
+	}
+
+	/** Alternativas da enquete, normalizadas; fora de POLL devolve vazio (o campo e ignorado). */
+	private List<String> pollOptions(PublishPostCommand command) {
+		if (command.type() != PostType.POLL) {
+			return List.of();
+		}
+		List<String> raw = command.pollOptions() == null ? List.of() : command.pollOptions().stream()
+			.map(value -> value == null ? "" : PlainText.defuse(value.trim()))
+			.toList();
+		if (raw.size() < MIN_POLL_OPTIONS) {
+			throw new ApiException(400, "POLL_TOO_FEW_OPTIONS",
+				"Enquete precisa de pelo menos " + MIN_POLL_OPTIONS + " alternativas.");
+		}
+		if (raw.size() > MAX_POLL_OPTIONS) {
+			throw new ApiException(400, "POLL_TOO_MANY_OPTIONS",
+				"Enquete aceita no maximo " + MAX_POLL_OPTIONS + " alternativas.");
+		}
+		if (raw.stream().anyMatch(option -> !StringUtils.hasText(option))) {
+			throw new ApiException(400, "POLL_EMPTY_OPTION", "Toda alternativa da enquete precisa de texto.");
+		}
+		if (raw.stream().anyMatch(option -> option.length() > MAX_POLL_OPTION_LENGTH)) {
+			throw new ApiException(400, "POLL_OPTION_TOO_LONG",
+				"Cada alternativa aceita no maximo " + MAX_POLL_OPTION_LENGTH + " caracteres.");
+		}
+		if (raw.stream().map(option -> option.toLowerCase(java.util.Locale.ROOT)).distinct().count() != raw.size()) {
+			throw new ApiException(400, "POLL_DUPLICATE_OPTION", "As alternativas da enquete nao podem se repetir.");
+		}
+		return raw;
 	}
 }

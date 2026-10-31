@@ -43,28 +43,25 @@ class ThemeGalleryController {
 	}
 
 	@PostMapping("/temas/galeria")
-	Map<String, Object> publish(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> publish(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody PublishThemeRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		ThemePackage created = gallery.publish(user.id().value(), request.name(), request.description(),
 			request.packageJson(), request.modeDefault());
 		return Map.of("id", created.id(), "status", created.status().name());
 	}
 
 	@PatchMapping("/temas/galeria/{themeId}")
-	ThemeGalleryView update(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ThemeGalleryView update(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String themeId, @RequestBody UpdateThemeRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return ThemeGalleryView.from(gallery.update(themeId, user.id().value(), request.name(), request.description(),
 			request.packageJson(), request.modeDefault()));
 	}
 
 	@GetMapping("/temas/galeria/mine")
-	List<ThemeGalleryView> mine(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	List<ThemeGalleryView> mine(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return gallery.mine(user.id().value()).stream().map(ThemeGalleryView::from).toList();
 	}
 
@@ -81,10 +78,9 @@ class ThemeGalleryController {
 	}
 
 	@PostMapping("/temas/galeria/{themeId}/hide")
-	Map<String, Object> hide(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> hide(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String themeId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		gallery.hide(themeId, user.id().value());
 		return Map.of("status", "HIDDEN");
 	}

@@ -3,13 +3,12 @@ package com.socialcoisa.rede.identity.application;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -17,19 +16,23 @@ import javax.crypto.spec.SecretKeySpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import com.socialcoisa.rede.shared.security.Hashes;
 import com.socialcoisa.rede.shared.web.ApiException;
 
 /**
  * Captcha próprio para o cadastro quando o Cloudflare Turnstile não está configurado.
  *
- * É um desafio de soma assinado (HMAC) e com prazo curto: o servidor não guarda estado, então
- * funciona com qualquer número de pods. O token leva o hash da resposta, nunca a resposta; o
- * cliente recebe só a pergunta. Além da resposta certa, exigimos pelo menos 1,2s desde a emissão
- * (um script que resolve na hora não passa) e não aceitamos o mesmo token duas vezes neste pod.
+ * É um desafio de soma assinado (HMAC) e com prazo curto. The answer only enters the HMAC input, so
+ * the token carries nothing that can be checked offline against candidate answers; the client gets
+ * only the question. Além da resposta certa, exigimos pelo menos 1,2s desde a emissão (um script que
+ * resolve na hora não passa). Single use is tracked in the database, shared by every pod.
+ *
+ * <p>ponytail: a sum question is readable by any bot; this is only a fallback. Production should
+ * configure Turnstile (TURNSTILE_SITE_KEY / TURNSTILE_SECRET_KEY), which takes precedence.</p>
  *
  * O honeypot e o rate limit por IP continuam valendo em paralelo. Quando TURNSTILE_SITE_KEY e
  * TURNSTILE_SECRET_KEY existirem, o Turnstile assume e este desafio não é usado.
@@ -40,19 +43,19 @@ public class SignupChallengeService {
 	private static final Logger LOG = LoggerFactory.getLogger(SignupChallengeService.class);
 	private static final Duration TTL = Duration.ofMinutes(5);
 	private static final long MIN_ELAPSED_MS = 1_200L;
-	private static final int MAX_USED = 20_000;
 
 	private final boolean enabled;
 	private final Clock clock;
 	private final SecureRandom random = new SecureRandom();
 	private final byte[] secret;
-	private final Map<String, Long> used = new ConcurrentHashMap<>();
+	private final JdbcTemplate jdbc;
 
-	public SignupChallengeService(Clock clock,
+	public SignupChallengeService(Clock clock, JdbcTemplate jdbc,
 			@Value("${rede.security.signup-captcha-enabled:true}") boolean enabled,
 			@Value("${rede.security.encryption-key:}") String encryptionKey) {
 		this.enabled = enabled;
 		this.clock = clock;
+		this.jdbc = jdbc;
 		this.secret = resolveSecret(encryptionKey, enabled);
 	}
 
@@ -67,9 +70,8 @@ public class SignupChallengeService {
 		Instant now = clock.instant();
 		Instant expiresAt = now.plus(TTL);
 		String nonce = UUID.randomUUID().toString().replace("-", "");
-		String payload = now.toEpochMilli() + "|" + expiresAt.toEpochMilli() + "|"
-			+ Hashes.sha256Hex(Integer.toString(answer)) + "|" + nonce;
-		String token = encode(payload.getBytes(StandardCharsets.UTF_8)) + "." + encode(sign(payload));
+		String payload = now.toEpochMilli() + "|" + expiresAt.toEpochMilli() + "|" + nonce;
+		String token = encode(payload.getBytes(StandardCharsets.UTF_8)) + "." + encode(sign(payload, answer));
 		return new Challenge(token, "Quanto é " + left + " + " + right + "?", expiresAt);
 	}
 
@@ -94,12 +96,14 @@ public class SignupChallengeService {
 		catch (IllegalArgumentException exception) {
 			throw invalid();
 		}
-		if (!MessageDigest.isEqual(signature, sign(new String(payloadBytes, StandardCharsets.UTF_8)))) {
+		String payload = new String(payloadBytes, StandardCharsets.UTF_8);
+		// A wrong answer and a forged token are indistinguishable: both fail the HMAC.
+		if (!MessageDigest.isEqual(signature, sign(payload, answer))) {
 			throw invalid();
 		}
 
-		String[] fields = new String(payloadBytes, StandardCharsets.UTF_8).split("\\|");
-		if (fields.length != 4) {
+		String[] fields = payload.split("\\|");
+		if (fields.length != 3) {
 			throw invalid();
 		}
 		long issuedAt;
@@ -120,19 +124,17 @@ public class SignupChallengeService {
 			throw new ApiException(400, "SIGNUP_CAPTCHA_TOO_FAST",
 				"Calma aí: resolva a verificação com um tempinho e envie de novo.");
 		}
-		if (!MessageDigest.isEqual(fields[2].getBytes(StandardCharsets.UTF_8),
-				Hashes.sha256Hex(Integer.toString(answer)).getBytes(StandardCharsets.UTF_8))) {
-			throw invalid();
-		}
-		remember(fields[3], expiresAt, now);
+		remember(fields[2], expiresAt, now);
 	}
 
+	/** The primary key makes the second use of a nonce fail on any pod. */
 	private void remember(String nonce, long expiresAt, long now) {
-		if (used.size() > MAX_USED) {
-			used.entrySet().removeIf(entry -> entry.getValue() < now);
+		jdbc.update("delete from signup_challenge_nonces where expires_at < ?", new Timestamp(now));
+		try {
+			jdbc.update("insert into signup_challenge_nonces (nonce, expires_at) values (?, ?)", nonce,
+				new Timestamp(expiresAt));
 		}
-		Long previous = used.putIfAbsent(nonce, expiresAt);
-		if (previous != null) {
+		catch (DuplicateKeyException reused) {
 			throw new ApiException(400, "SIGNUP_CAPTCHA_REUSED",
 				"Esta verificação já foi usada. Recarregue e tente de novo.");
 		}
@@ -143,11 +145,11 @@ public class SignupChallengeService {
 			"Verificação de segurança inválida. Recarregue e tente de novo.");
 	}
 
-	private byte[] sign(String payload) {
+	private byte[] sign(String payload, int answer) {
 		try {
 			Mac mac = Mac.getInstance("HmacSHA256");
 			mac.init(new SecretKeySpec(secret, "HmacSHA256"));
-			return mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+			return mac.doFinal((payload + "|" + answer).getBytes(StandardCharsets.UTF_8));
 		}
 		catch (Exception exception) {
 			throw new IllegalStateException("HmacSHA256 indisponível", exception);

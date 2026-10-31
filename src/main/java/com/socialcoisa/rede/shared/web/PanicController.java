@@ -26,23 +26,21 @@ class PanicController {
 	}
 
 	@GetMapping("/admin/panic")
-	PanicView status(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		requireAdmin(userId, sessionToken);
+	PanicView status(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		requireAdmin(sessionToken);
 		return view();
 	}
 
 	@PostMapping("/admin/panic")
-	PanicView toggle(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	PanicView toggle(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody PanicRequest request) {
-		requireAdmin(userId, sessionToken);
+		requireAdmin(sessionToken);
 		panic.setActive(request != null && Boolean.TRUE.equals(request.active()));
 		return view();
 	}
 
-	private void requireAdmin(String userId, String sessionToken) {
-		adminGuard.requireAdmin(currentUserResolver.resolve(userId, sessionToken));
+	private void requireAdmin(String sessionToken) {
+		adminGuard.requireAdmin(currentUserResolver.resolve(sessionToken));
 	}
 
 	private PanicView view() {

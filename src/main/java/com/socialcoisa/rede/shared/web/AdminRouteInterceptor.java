@@ -1,6 +1,11 @@
 package com.socialcoisa.rede.shared.web;
 
+import java.util.List;
+
 import org.springframework.stereotype.Component;
+import org.springframework.http.server.PathContainer;
+import org.springframework.web.util.pattern.PathPattern;
+import org.springframework.web.util.pattern.PathPatternParser;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,10 +26,32 @@ class AdminRouteInterceptor implements HandlerInterceptor {
 
 	private final CurrentUserResolver currentUserResolver;
 	private final AdminGuard adminGuard;
+	private final ModeratorGuard moderatorGuard;
 
-	AdminRouteInterceptor(CurrentUserResolver currentUserResolver, AdminGuard adminGuard) {
+	/**
+	 * Caminhos de /admin que o painel de moderação abre para MODERADORES (além do admin):
+	 * filas, recursos, disputas, ações de usuário, IPs e o painel de monitoramento. Tudo o que
+	 * não está aqui permanece exclusivo do admin — inclusive a candidatura e a gestão de
+	 * moderadores, que nem aparecem nesta lista.
+	 */
+	private static final PathPattern ADMIN_PATH = pattern("/admin/**");
+
+	private static final List<PathPattern> CAMINHOS_DE_MODERADOR = List.of(
+		"/admin/appeals/**", "/admin/support/**", "/admin/suggestions/**", "/admin/emails/**",
+		"/admin/blocked-ips/**", "/admin/monitoring/**").stream()
+		.map(AdminRouteInterceptor::pattern).toList();
+
+	/** Subcaminhos de /admin/support que continuam exclusivos do admin (infraestrutura). */
+	private static final List<PathPattern> SUPPORT_ADMIN_ONLY = List.of(pattern("/admin/support/github/**"));
+
+	private static final List<PathPattern> ACOES_DE_USUARIO = List.of("sanction", "sanitize", "ips")
+		.stream().map(action -> pattern("/admin/users/*/" + action)).toList();
+
+	AdminRouteInterceptor(CurrentUserResolver currentUserResolver, AdminGuard adminGuard,
+			ModeratorGuard moderatorGuard) {
 		this.currentUserResolver = currentUserResolver;
 		this.adminGuard = adminGuard;
+		this.moderatorGuard = moderatorGuard;
 	}
 
 	@Override
@@ -35,20 +62,28 @@ class AdminRouteInterceptor implements HandlerInterceptor {
 		if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
 			return true;
 		}
-		if (!isAdminPath(request)) {
+		PathContainer path = RequestPath.segments(request);
+		if (!ADMIN_PATH.matches(path)) {
 			return true;
 		}
 		CurrentUser user = currentUserResolver.resolve(request.getHeader("X-Session-Token"));
+		if (abertoAoModerador(path)) {
+			moderatorGuard.requireModerator(user);
+			return true;
+		}
 		adminGuard.requireAdmin(user);
 		return true;
 	}
 
-	private boolean isAdminPath(HttpServletRequest request) {
-		String path = request.getRequestURI();
-		String context = request.getContextPath();
-		if (context != null && !context.isEmpty() && path.startsWith(context)) {
-			path = path.substring(context.length());
+	private boolean abertoAoModerador(PathContainer path) {
+		if (SUPPORT_ADMIN_ONLY.stream().anyMatch(pattern -> pattern.matches(path))) {
+			return false;
 		}
-		return path.startsWith("/admin/") || path.equals("/admin");
+		return CAMINHOS_DE_MODERADOR.stream().anyMatch(pattern -> pattern.matches(path))
+			|| ACOES_DE_USUARIO.stream().anyMatch(pattern -> pattern.matches(path));
+	}
+
+	private static PathPattern pattern(String value) {
+		return PathPatternParser.defaultInstance.parse(value);
 	}
 }

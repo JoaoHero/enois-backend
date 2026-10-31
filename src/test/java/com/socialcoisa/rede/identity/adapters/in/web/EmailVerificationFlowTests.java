@@ -80,7 +80,7 @@ class EmailVerificationFlowTests {
 			.andExpect(jsonPath("$.user.emailVerified").value(true))
 			.andReturn();
 
-		String sessionToken = objectMapper.readTree(verified.getResponse().getContentAsString()).get("token").asText();
+		String sessionToken = com.socialcoisa.rede.shared.web.TestAuthHelper.sessionToken(verified);
 
 		// A sessao do link ja vale para as funcionalidades protegidas.
 		mockMvc.perform(get("/auth/me").header("X-Session-Token", sessionToken))

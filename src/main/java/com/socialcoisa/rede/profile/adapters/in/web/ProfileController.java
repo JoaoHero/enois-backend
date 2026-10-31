@@ -73,28 +73,25 @@ class ProfileController {
 	}
 
 	@GetMapping("/me")
-	Object me(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	Object me(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return getMeUseCase.getMe(user.id().value());
 	}
 
 	/** Estado de idade do usuario logado (ECA Digital) — sem expor a data de nascimento. */
 	@GetMapping("/me/age-state")
 	com.socialcoisa.rede.profile.application.ProfileService.AgeStateView ageState(
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return profileService.ageState(user.id().value());
 	}
 
 	/** Regularizacao da base: declara (ou corrige) a data de nascimento. */
 	@PostMapping("/me/birth-date")
 	com.socialcoisa.rede.profile.application.ProfileService.AgeStateView declareBirthDate(
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody BirthDateRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return profileService.declareBirthDate(user.id().value(), request.birthDate());
 	}
 
@@ -137,10 +134,11 @@ class ProfileController {
 	}
 
 	record PublicNetworkUserView(String id, String username, String name, String headline, String avatar,
-		String avatarFrame) {
+		String avatarFrame, com.socialcoisa.rede.profile.application.NameStyleView nameStyle) {
 		static PublicNetworkUserView from(UserProfile profile) {
 			return new PublicNetworkUserView(profile.id(), profile.username(), profile.displayWithNickname(),
-				profile.headline(), profile.avatar(), profile.avatarFrame());
+				profile.headline(), profile.avatar(), profile.avatarFrame(),
+				com.socialcoisa.rede.profile.application.NameStyleView.from(profile));
 		}
 	}
 
@@ -183,22 +181,20 @@ class ProfileController {
 	 * curte competicao. Preferencia da conta — vale para quem LE, nao para o perfil visitado.
 	 */
 	@PutMapping("/me/ranking")
-	ResponseEntity<String> ranking(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<String> ranking(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@RequestBody RankingPreferenceRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String hash = idempotency.hash(request);
 		return idempotency.execute(user.id(), "PUT", "/api/me/ranking", idempotencyKey, hash,
 			() -> new CommandResponse(200, profileService.setShowRanking(user.id().value(), request.show())));
 	}
 
 	@PatchMapping("/me/profile")
-	ResponseEntity<String> update(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<String> update(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@RequestBody UpdateProfileRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String hash = idempotency.hash(request);
 		return idempotency.execute(user.id(), "PATCH", "/api/me/profile", idempotencyKey, hash,
 			() -> new CommandResponse(200, updateProfileUseCase.update(new UpdateProfileCommand(user.id().value(),
@@ -206,12 +202,10 @@ class ProfileController {
 				request.banner(), request.badge(), request.bio(), request.bioHtml(), request.bannerHtml(), request.skills(), request.goals(),
 				request.availability(),
 				request.portfolio(), request.externalLinks(), request.openToWork(), request.isMentor(),
-				request.username(), request.aka(), request.resumeUrl(), request.resumeName()))));
+				request.username(), request.aka(), request.resumeUrl(), request.resumeName(), request.birthDate(),
+				request.city(), request.state(), request.showCity()))));
 	}
 
-	private CurrentUser resolve(String userId, String sessionToken) {
-		return currentUserResolver.resolve(userId, sessionToken);
-	}
 
 	/** Experiências para o perfil público (abaixo dos projetos); leitura aberta. */
 	@GetMapping("/users/{username}/experiences")
@@ -220,89 +214,77 @@ class ProfileController {
 	}
 
 	@GetMapping("/me/experiences")
-	List<ExperienceView> getExperiences(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken) {
-		return profileExtensionUseCase.getExperiences(resolve(userId, sessionToken).id().value());
+	List<ExperienceView> getExperiences(@RequestHeader("X-Session-Token") String sessionToken) {
+		return profileExtensionUseCase.getExperiences(currentUserResolver.resolve(sessionToken).id().value());
 	}
 
 	@PostMapping("/me/experiences")
 	@ResponseStatus(HttpStatus.CREATED)
-	ExperienceView addExperience(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @RequestBody ExperienceRequest request) {
-		return profileExtensionUseCase.addExperience(resolve(userId, sessionToken).id().value(), request.title(),
+	ExperienceView addExperience(@RequestHeader("X-Session-Token") String sessionToken, @RequestBody ExperienceRequest request) {
+		return profileExtensionUseCase.addExperience(currentUserResolver.resolve(sessionToken).id().value(), request.title(),
 			request.company(), request.location(), request.description(), request.startDate(), request.endDate());
 	}
 
 	@PutMapping("/me/experiences/{id}")
-	ExperienceView updateExperience(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String id,
+	ExperienceView updateExperience(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String id,
 			@RequestBody ExperienceRequest request) {
-		return profileExtensionUseCase.updateExperience(resolve(userId, sessionToken).id().value(), id, request.title(),
+		return profileExtensionUseCase.updateExperience(currentUserResolver.resolve(sessionToken).id().value(), id, request.title(),
 			request.company(), request.location(), request.description(), request.startDate(), request.endDate());
 	}
 
 	@DeleteMapping("/me/experiences/{id}")
-	void removeExperience(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String id) {
-		profileExtensionUseCase.removeExperience(resolve(userId, sessionToken).id().value(), id);
+	void removeExperience(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String id) {
+		profileExtensionUseCase.removeExperience(currentUserResolver.resolve(sessionToken).id().value(), id);
 	}
 
 	@GetMapping("/me/education")
-	List<EducationView> getEducation(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken) {
-		return profileExtensionUseCase.getEducations(resolve(userId, sessionToken).id().value());
+	List<EducationView> getEducation(@RequestHeader("X-Session-Token") String sessionToken) {
+		return profileExtensionUseCase.getEducations(currentUserResolver.resolve(sessionToken).id().value());
 	}
 
 	@PostMapping("/me/education")
 	@ResponseStatus(HttpStatus.CREATED)
-	EducationView addEducation(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @RequestBody EducationRequest request) {
-		return profileExtensionUseCase.addEducation(resolve(userId, sessionToken).id().value(), request.school(),
+	EducationView addEducation(@RequestHeader("X-Session-Token") String sessionToken, @RequestBody EducationRequest request) {
+		return profileExtensionUseCase.addEducation(currentUserResolver.resolve(sessionToken).id().value(), request.school(),
 			request.degree(), request.field(), request.description(), request.startDate(), request.endDate());
 	}
 
 	@PutMapping("/me/education/{id}")
-	EducationView updateEducation(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String id,
+	EducationView updateEducation(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String id,
 			@RequestBody EducationRequest request) {
-		return profileExtensionUseCase.updateEducation(resolve(userId, sessionToken).id().value(), id, request.school(),
+		return profileExtensionUseCase.updateEducation(currentUserResolver.resolve(sessionToken).id().value(), id, request.school(),
 			request.degree(), request.field(), request.description(), request.startDate(), request.endDate());
 	}
 
 	@DeleteMapping("/me/education/{id}")
-	void removeEducation(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String id) {
-		profileExtensionUseCase.removeEducation(resolve(userId, sessionToken).id().value(), id);
+	void removeEducation(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String id) {
+		profileExtensionUseCase.removeEducation(currentUserResolver.resolve(sessionToken).id().value(), id);
 	}
 
 	@GetMapping("/me/certifications")
-	List<CertificationView> getCertifications(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken) {
-		return profileExtensionUseCase.getCertifications(resolve(userId, sessionToken).id().value());
+	List<CertificationView> getCertifications(@RequestHeader("X-Session-Token") String sessionToken) {
+		return profileExtensionUseCase.getCertifications(currentUserResolver.resolve(sessionToken).id().value());
 	}
 
 	@PostMapping("/me/certifications")
 	@ResponseStatus(HttpStatus.CREATED)
-	CertificationView addCertification(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @RequestBody CertificationRequest request) {
-		return profileExtensionUseCase.addCertification(resolve(userId, sessionToken).id().value(), request.name(),
+	CertificationView addCertification(@RequestHeader("X-Session-Token") String sessionToken, @RequestBody CertificationRequest request) {
+		return profileExtensionUseCase.addCertification(currentUserResolver.resolve(sessionToken).id().value(), request.name(),
 			request.issuer(), request.description(), request.issueDate(), request.expirationDate(),
 			request.credentialUrl());
 	}
 
 	@PutMapping("/me/certifications/{id}")
-	CertificationView updateCertification(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String id,
+	CertificationView updateCertification(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String id,
 			@RequestBody CertificationRequest request) {
-		return profileExtensionUseCase.updateCertification(resolve(userId, sessionToken).id().value(), id, request.name(),
+		return profileExtensionUseCase.updateCertification(currentUserResolver.resolve(sessionToken).id().value(), id, request.name(),
 			request.issuer(), request.description(), request.issueDate(), request.expirationDate(),
 			request.credentialUrl());
 	}
 
 	@DeleteMapping("/me/certifications/{id}")
-	void removeCertification(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String id) {
-		profileExtensionUseCase.removeCertification(resolve(userId, sessionToken).id().value(), id);
+	void removeCertification(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String id) {
+		profileExtensionUseCase.removeCertification(currentUserResolver.resolve(sessionToken).id().value(), id);
 	}
 
 	record ExperienceRequest(String title, String company, String location, String description, LocalDate startDate,

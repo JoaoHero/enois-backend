@@ -68,11 +68,13 @@ class MarketplaceFlowTests {
 
 		// O autor não compra o próprio item.
 		mockMvc.perform(post("/marketplace/" + listingId + "/buy")
+				.header("Idempotency-Key", java.util.UUID.randomUUID().toString())
 				.header("X-Session-Token", author.token()))
 			.andExpect(status().isBadRequest());
 
 		// O comprador paga: escrow retém, o saldo cai 105.000 -> 55.000 (mf).
 		MvcResult bought = mockMvc.perform(post("/marketplace/" + listingId + "/buy")
+				.header("Idempotency-Key", java.util.UUID.randomUUID().toString())
 				.header("X-Session-Token", buyer.token()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.state").value("HELD"))
@@ -83,6 +85,7 @@ class MarketplaceFlowTests {
 
 		// Confirmado: o criador recebe 90% (45) e a taxa fica na tesouraria.
 		mockMvc.perform(post("/marketplace/purchases/" + purchaseId + "/confirm")
+				.header("Idempotency-Key", java.util.UUID.randomUUID().toString())
 				.header("X-Session-Token", buyer.token()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.state").value("RELEASED"));
@@ -109,6 +112,7 @@ class MarketplaceFlowTests {
 			.andReturn();
 		String listing2 = objectMapper.readTree(listed2.getResponse().getContentAsString()).get("id").asText();
 		MvcResult bought2 = mockMvc.perform(post("/marketplace/" + listing2 + "/buy")
+				.header("Idempotency-Key", java.util.UUID.randomUUID().toString())
 				.header("X-Session-Token", buyer.token()))
 			.andExpect(status().isOk())
 			.andReturn();
@@ -117,6 +121,7 @@ class MarketplaceFlowTests {
 
 		// Reembolso: o comprador volta a ter o valor (55.000 -> 55.000: comprou 50, devolveu 50).
 		mockMvc.perform(post("/marketplace/purchases/" + purchase2 + "/refund")
+				.header("Idempotency-Key", java.util.UUID.randomUUID().toString())
 				.header("X-Session-Token", buyer.token()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.state").value("REFUNDED"));

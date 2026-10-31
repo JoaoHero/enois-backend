@@ -104,6 +104,15 @@ class SupportGithubIssuesTests {
 	}
 
 	@Test
+	void signedWebhookIsNotSubjectToTheUserContentLinkCheck() throws Exception {
+		// Issue text written on GitHub is not user content of this app and is never rendered here.
+		webhook("""
+			{"action":"closed","issue":{"number":9998,"state":"closed","body":"[x](javascript:alert(1))"},
+			"repository":{"full_name":"%s"}}
+			""".formatted(REPO));
+	}
+
+	@Test
 	void reabrirAIssueVoltaOPedidoParaAberto() throws Exception {
 		var user = new TestAuthHelper(mockMvc, objectMapper).authenticate("sg_user2");
 		String ticketId = openTicket(user.token());

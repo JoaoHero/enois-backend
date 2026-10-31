@@ -86,15 +86,28 @@ class GithubIssuesClient implements GithubIssuesGateway {
 		return call("PATCH", "/repos/" + config.repository() + "/issues/" + issueNumber, payload).isPresent();
 	}
 
+	@Override
+	public Optional<Long> comment(int issueNumber, String body, String tokenOverride) {
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("body", body);
+		return call("POST", "/repos/" + config.repository() + "/issues/" + issueNumber + "/comments", payload,
+			tokenOverride).map(node -> node.path("id").asLong(0)).filter(id -> id > 0);
+	}
+
 	private Optional<JsonNode> call(String method, String path, Map<String, Object> payload) {
+		return call(method, path, payload, null);
+	}
+
+	private Optional<JsonNode> call(String method, String path, Map<String, Object> payload, String tokenOverride) {
 		if (!enabled()) {
 			return Optional.empty();
 		}
+		String token = tokenOverride == null || tokenOverride.isBlank() ? config.token() : tokenOverride;
 		try {
 			HttpRequest request = HttpRequest.newBuilder(URI.create(apiBase + path))
 				.timeout(Duration.ofSeconds(6))
 				.header("Accept", "application/vnd.github+json")
-				.header("Authorization", "Bearer " + config.token())
+				.header("Authorization", "Bearer " + token)
 				.header("X-GitHub-Api-Version", "2022-11-28")
 				.header("User-Agent", "enois-suporte/1.0")
 				.header("Content-Type", "application/json")

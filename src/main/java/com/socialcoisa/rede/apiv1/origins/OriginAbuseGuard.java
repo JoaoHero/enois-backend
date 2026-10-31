@@ -38,7 +38,7 @@ class OriginAbuseGuard {
 	private final Map<String, Deque<Long>> failures = new ConcurrentHashMap<>();
 
 	OriginAbuseGuard(DeveloperOriginService origins,
-			@Value("${rede.cors.allowed-origins:https://enois.ia.br,http://localhost:5173}") String allowedOrigins,
+			@Value("${rede.cors.allowed-origins:https://enois.ia.br}") String allowedOrigins,
 			@Value("${rede.origins.trusted:https://*.b7cloud.com.br}") String trustedPatterns,
 			@Value("${rede.origins.suspicious.max-failures:60}") int maxFailures,
 			@Value("${rede.origins.suspicious.window-seconds:300}") long windowSeconds,

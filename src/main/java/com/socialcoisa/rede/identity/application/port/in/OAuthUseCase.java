@@ -16,6 +16,9 @@ public interface OAuthUseCase {
 	 */
 	OAuthStartResponse startLink(String userId, OAuthProvider provider);
 
+	/** Vinculo com escopo de escrita (GitHub `repo`), usado por quem responde issues/revisa PRs. */
+	OAuthStartResponse startLinkWithWrite(String userId, OAuthProvider provider);
+
 	/**
 	 * Conclui o fluxo iniciado em {@link #start}/{@link #startLink}.
 	 *

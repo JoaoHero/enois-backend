@@ -3,6 +3,9 @@ package com.socialcoisa.rede.groups.adapters.in.web;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -24,6 +27,7 @@ import com.socialcoisa.rede.groups.domain.GroupTopic;
 import com.socialcoisa.rede.idempotency.application.CommandResponse;
 import com.socialcoisa.rede.idempotency.application.IdempotencyApplicationService;
 import com.socialcoisa.rede.profile.application.port.out.UserProfileRepository;
+import com.socialcoisa.rede.profile.application.NameStyleView;
 import com.socialcoisa.rede.profile.domain.UserProfile;
 import com.socialcoisa.rede.shared.web.ApiException;
 import com.socialcoisa.rede.shared.web.CurrentUser;
@@ -60,7 +64,7 @@ class GroupContentController {
 	@GetMapping("/{groupId}/topics")
 	PageResponse<TopicView> topics(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@PathVariable String groupId) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
+		CurrentUser user = currentUserResolver.resolve(token);
 		var items = feed.listTopics(groupId, user.id().value()).stream().map(GroupContentController::topicView).toList();
 		return new PageResponse<>(items, null);
 	}
@@ -69,7 +73,7 @@ class GroupContentController {
 	ResponseEntity<String> createTopic(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String groupId, @RequestBody TopicRequest request) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
+		CurrentUser user = currentUserResolver.resolve(token);
 		String hash = idempotency.hash(Map.of("groupId", groupId, "request", request));
 		return idempotency.execute(user.id(), "POST", "/api/groups/{groupId}/topics", idempotencyKey, hash, () -> {
 			GroupTopic topic = feed.createTopic(groupId, user.id().value(), request.name(), request.description());
@@ -81,7 +85,7 @@ class GroupContentController {
 	ResponseEntity<String> updateTopic(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String groupId, @PathVariable String topicId, @RequestBody TopicRequest request) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
+		CurrentUser user = currentUserResolver.resolve(token);
 		String hash = idempotency.hash(Map.of("groupId", groupId, "topicId", topicId, "request", request));
 		return idempotency.execute(user.id(), "PATCH", "/api/groups/{groupId}/topics/{topicId}", idempotencyKey, hash,
 			() -> {
@@ -95,7 +99,7 @@ class GroupContentController {
 	ResponseEntity<String> archiveTopic(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String groupId, @PathVariable String topicId) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
+		CurrentUser user = currentUserResolver.resolve(token);
 		String hash = idempotency.hash(Map.of("groupId", groupId, "topicId", topicId, "action", "archive"));
 		return idempotency.execute(user.id(), "POST", "/api/groups/{groupId}/topics/{topicId}/archive",
 			idempotencyKey, hash, () -> {
@@ -108,7 +112,7 @@ class GroupContentController {
 	ResponseEntity<String> reorderTopics(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String groupId, @RequestBody ReorderTopicsRequest request) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
+		CurrentUser user = currentUserResolver.resolve(token);
 		String hash = idempotency.hash(Map.of("groupId", groupId, "request", request));
 		return idempotency.execute(user.id(), "POST", "/api/groups/{groupId}/topics/reorder", idempotencyKey, hash,
 			() -> {
@@ -122,12 +126,12 @@ class GroupContentController {
 	ResponseEntity<String> publish(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String groupId, @RequestBody GroupPostRequest request) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
+		CurrentUser user = currentUserResolver.resolve(token);
 		String hash = idempotency.hash(Map.of("groupId", groupId, "request", request));
 		return idempotency.execute(user.id(), "POST", "/api/groups/{groupId}/posts", idempotencyKey, hash, () -> {
 			GroupPost post = feed.publish(groupId, request.topicId(), user.id().value(), request.content(),
 				request.mediaIds());
-			return new CommandResponse(201, postView(post, null));
+			return new CommandResponse(201, postView(post, null, author(post.authorId())));
 		});
 	}
 
@@ -135,13 +139,16 @@ class GroupContentController {
 	PageResponse<GroupPostView> posts(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@PathVariable String groupId, @RequestParam(required = false) String topicId,
 			@RequestParam(required = false) String cursor, @RequestParam(defaultValue = "20") int limit) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
+		CurrentUser user = currentUserResolver.resolve(token);
 		Instant before = cursorCodec.decode(cursor).orElse(null);
 		List<GroupPost> posts = feed.listPosts(groupId, topicId, user.id().value(), before, limit);
 		// A reação de quem está lendo vem numa consulta só (sem N+1), como no feed principal.
 		Map<String, ReactionType> mine = feed.myReactions(groupId, user.id().value(),
 			posts.stream().map(GroupPost::id).toList());
-		var items = posts.stream().map(post -> postView(post, mine.get(post.id()))).toList();
+		Map<String, UserProfile> authors = authorsOf(posts.stream().map(GroupPost::authorId).toList());
+		var items = posts.stream()
+			.map(post -> postView(post, mine.get(post.id()), authors.get(post.authorId())))
+			.toList();
 		String nextCursor = posts.size() == limit
 			? cursorCodec.encode(posts.get(posts.size() - 1).createdAt()) : null;
 		return new PageResponse<>(items, nextCursor);
@@ -151,22 +158,23 @@ class GroupContentController {
 	@GetMapping("/{groupId}/pinned")
 	GroupPostView pinned(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@PathVariable String groupId) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
+		CurrentUser user = currentUserResolver.resolve(token);
 		GroupPost post = feed.pinnedPost(groupId, user.id().value())
 			.orElseThrow(() -> new ApiException(404, "NO_PINNED_POST", "Nao ha publicacao fixada neste grupo."));
-		return postView(post, feed.myReactions(groupId, user.id().value(), List.of(post.id())).get(post.id()));
+		return postView(post, feed.myReactions(groupId, user.id().value(), List.of(post.id())).get(post.id()),
+			author(post.authorId()));
 	}
 
 	@PostMapping("/{groupId}/posts/{postId}/pin")
 	ResponseEntity<String> pin(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String groupId, @PathVariable String postId) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
+		CurrentUser user = currentUserResolver.resolve(token);
 		String hash = idempotency.hash(Map.of("groupId", groupId, "postId", postId, "action", "pin"));
 		return idempotency.execute(user.id(), "POST", "/api/groups/{groupId}/posts/{postId}/pin", idempotencyKey, hash,
 			() -> {
 				GroupPost post = feed.pinPost(groupId, postId, user.id().value());
-				return new CommandResponse(200, postView(post, null));
+				return new CommandResponse(200, postView(post, null, author(post.authorId())));
 			});
 	}
 
@@ -174,7 +182,7 @@ class GroupContentController {
 	ResponseEntity<String> unpin(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String groupId, @PathVariable String postId) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
+		CurrentUser user = currentUserResolver.resolve(token);
 		String hash = idempotency.hash(Map.of("groupId", groupId, "postId", postId, "action", "unpin"));
 		return idempotency.execute(user.id(), "DELETE", "/api/groups/{groupId}/posts/{postId}/pin", idempotencyKey,
 			hash, () -> {
@@ -187,13 +195,13 @@ class GroupContentController {
 	ResponseEntity<String> comment(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String groupId, @PathVariable String postId, @RequestBody CommentRequest request) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
+		CurrentUser user = currentUserResolver.resolve(token);
 		String hash = idempotency.hash(Map.of("groupId", groupId, "postId", postId, "request", request));
 		return idempotency.execute(user.id(), "POST", "/api/groups/{groupId}/posts/{postId}/comments",
 			idempotencyKey, hash, () -> {
 				GroupComment comment = feed.comment(groupId, postId, user.id().value(), request.content(),
 					request.parentCommentId());
-				return new CommandResponse(201, commentView(comment));
+				return new CommandResponse(201, commentView(comment, author(comment.authorId())));
 			});
 	}
 
@@ -201,11 +209,10 @@ class GroupContentController {
 	PageResponse<CommentView> comments(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@PathVariable String groupId, @PathVariable String postId,
 			@RequestParam(defaultValue = "100") int limit) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
-		var items = feed.listComments(groupId, postId, user.id().value(), limit)
-			.stream()
-			.map(this::commentView)
-			.toList();
+		CurrentUser user = currentUserResolver.resolve(token);
+		List<GroupComment> comments = feed.listComments(groupId, postId, user.id().value(), limit);
+		Map<String, UserProfile> authors = authorsOf(comments.stream().map(GroupComment::authorId).toList());
+		var items = comments.stream().map(comment -> commentView(comment, authors.get(comment.authorId()))).toList();
 		return new PageResponse<>(items, null);
 	}
 
@@ -213,7 +220,7 @@ class GroupContentController {
 	ResponseEntity<String> react(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String groupId, @PathVariable String postId, @RequestBody ReactionRequest request) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
+		CurrentUser user = currentUserResolver.resolve(token);
 		String hash = idempotency.hash(Map.of("groupId", groupId, "postId", postId, "request", request));
 		return idempotency.execute(user.id(), "POST", "/api/groups/{groupId}/posts/{postId}/reactions",
 			idempotencyKey, hash, () -> {
@@ -226,7 +233,7 @@ class GroupContentController {
 	ResponseEntity<String> unreact(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String groupId, @PathVariable String postId) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
+		CurrentUser user = currentUserResolver.resolve(token);
 		String hash = idempotency.hash(Map.of("groupId", groupId, "postId", postId, "action", "unreact"));
 		return idempotency.execute(user.id(), "DELETE", "/api/groups/{groupId}/posts/{postId}/reactions",
 			idempotencyKey, hash, () -> {
@@ -239,7 +246,7 @@ class GroupContentController {
 	ResponseEntity<String> removePost(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String groupId, @PathVariable String postId) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
+		CurrentUser user = currentUserResolver.resolve(token);
 		String hash = idempotency.hash(Map.of("groupId", groupId, "postId", postId, "action", "remove"));
 		return idempotency.execute(user.id(), "DELETE", "/api/groups/{groupId}/posts/{postId}", idempotencyKey, hash,
 			() -> {
@@ -252,7 +259,7 @@ class GroupContentController {
 	ResponseEntity<String> removeComment(@RequestHeader(value = "X-Session-Token", required = false) String token,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String groupId, @PathVariable String postId, @PathVariable String commentId) {
-		CurrentUser user = currentUserResolver.resolve(null, token);
+		CurrentUser user = currentUserResolver.resolve(token);
 		String hash = idempotency.hash(Map.of("groupId", groupId, "postId", postId, "commentId", commentId,
 			"action", "remove"));
 		return idempotency.execute(user.id(), "DELETE", "/api/groups/{groupId}/posts/{postId}/comments/{commentId}",
@@ -262,18 +269,26 @@ class GroupContentController {
 			});
 	}
 
-	private CommentView commentView(GroupComment comment) {
-		UserProfile author = profiles.findById(comment.authorId()).orElse(null);
+	private UserProfile author(String authorId) {
+		return profiles.findById(authorId).orElse(null);
+	}
+
+	/** One query for the whole list instead of one per row. */
+	private Map<String, UserProfile> authorsOf(List<String> authorIds) {
+		return profiles.findAllByIds(Set.copyOf(authorIds)).stream()
+			.collect(Collectors.toMap(UserProfile::id, Function.identity()));
+	}
+
+	private CommentView commentView(GroupComment comment, UserProfile author) {
 		return new CommentView(comment.id(), comment.postId(), comment.authorId(),
 			author == null ? null : author.displayWithNickname(),
 			author == null ? null : author.username(),
 			author == null ? null : author.avatar(),
 			author == null ? List.of() : author.allBadges(),
-			comment.parentId(), comment.content(), comment.createdAt(), author == null ? null : author.avatarFrame());
+			comment.parentId(), comment.content(), comment.createdAt(), author == null ? null : author.avatarFrame(), NameStyleView.from(author));
 	}
 
-	private GroupPostView postView(GroupPost post, ReactionType myReaction) {
-		UserProfile author = profiles.findById(post.authorId()).orElse(null);
+	private GroupPostView postView(GroupPost post, ReactionType myReaction, UserProfile author) {
 		List<String> badges = author == null ? List.of() : author.allBadges();
 		return new GroupPostView(post.id(), post.groupId(), post.topicId(), post.authorId(),
 			author == null ? null : author.displayWithNickname(),
@@ -281,7 +296,7 @@ class GroupContentController {
 			author == null ? null : author.avatar(),
 			badges,
 			post.content(), post.mediaIds(), post.pinned(), post.reactions(), post.comments(),
-			myReaction == null ? null : myReaction.name(), post.createdAt(), author == null ? null : author.avatarFrame());
+			myReaction == null ? null : myReaction.name(), post.createdAt(), author == null ? null : author.avatarFrame(), NameStyleView.from(author));
 	}
 
 	private static TopicView topicView(GroupTopic topic) {
@@ -305,7 +320,7 @@ class GroupContentController {
 	record GroupPostView(String id, String groupId, String topicId, String authorId, String authorName,
 			String authorUsername, String authorAvatar, List<String> authorBadges, String content,
 			List<String> mediaIds, boolean pinned, int reactions, int comments, String myReaction,
-			Instant createdAt, String authorAvatarFrame) {
+			Instant createdAt, String authorAvatarFrame, NameStyleView authorStyle) {
 	}
 
 	record CommentRequest(String content, String parentCommentId) {
@@ -316,6 +331,6 @@ class GroupContentController {
 
 	record CommentView(String id, String postId, String authorId, String authorName, String authorUsername,
 			String authorAvatar, List<String> authorBadges, String parentCommentId, String content,
-			Instant createdAt, String authorAvatarFrame) {
+			Instant createdAt, String authorAvatarFrame, NameStyleView authorStyle) {
 	}
 }

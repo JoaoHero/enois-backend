@@ -74,4 +74,42 @@ class MentorProfileTests {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.items.length()").value(0));
 	}
+
+	@Test
+	void bookingRequiresTheSlotToBelongToTheMentor() throws Exception {
+		String mentorA = createMentor(new TestAuthHelper(mockMvc, objectMapper).authenticate("mentor_slot_a"));
+		var ownerB = new TestAuthHelper(mockMvc, objectMapper).authenticate("mentor_slot_b");
+		String mentorB = createMentor(ownerB);
+		var mentee = new TestAuthHelper(mockMvc, objectMapper).authenticate("mentor_slot_mentee");
+
+		MvcResult slot = mockMvc.perform(post("/mentors/" + mentorB + "/slots")
+				.header("X-Session-Token", ownerB.token())
+				.header("Idempotency-Key", "mentor-slot-" + UUID.randomUUID())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of(
+					"startsAt", Instant.now().plusSeconds(86_400).toString(),
+					"endsAt", Instant.now().plusSeconds(90_000).toString()))))
+			.andExpect(status().isCreated())
+			.andReturn();
+		String slotOfB = objectMapper.readTree(slot.getResponse().getContentAsString()).get("id").asText();
+
+		mockMvc.perform(post("/mentors/" + mentorA + "/sessions")
+				.header("X-Session-Token", mentee.token())
+				.header("Idempotency-Key", "mentor-book-" + UUID.randomUUID())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of("slotId", slotOfB, "message", "oi"))))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("SLOT_NOT_FOUND"));
+	}
+
+	private String createMentor(TestAuthHelper.AuthSession owner) throws Exception {
+		MvcResult created = mockMvc.perform(post("/mentors")
+				.header("X-Session-Token", owner.token())
+				.header("Idempotency-Key", "mentor-create-" + UUID.randomUUID())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of("expertise", List.of("Java"), "price", "Gratuito"))))
+			.andExpect(status().isCreated())
+			.andReturn();
+		return objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asText();
+	}
 }

@@ -33,6 +33,8 @@ public class IpRateLimiter {
 	public static final String PASSWORD = "password";
 	public static final String EMAIL = "email";
 	public static final String TWO_FACTOR = "2fa";
+	public static final String CONTRIBUTION = "contribution";
+	public static final String REFRESH = "refresh";
 
 	/** Teto de chaves guardadas: passou disso, a limpeza roda na hora (evita crescer sem limite). */
 	private static final int MAX_KEYS = 20_000;
@@ -45,11 +47,15 @@ public class IpRateLimiter {
 	private final int passwordLimit;
 	private final int emailLimit;
 	private final int twoFactorLimit;
+	private final int contributionLimit;
+	private final int refreshLimit;
 	private final long signupWindowMs;
 	private final long loginWindowMs;
 	private final long passwordWindowMs;
 	private final long emailWindowMs;
 	private final long twoFactorWindowMs;
+	private final long contributionWindowMs;
+	private final long refreshWindowMs;
 
 	public IpRateLimiter(Clock clock,
 			@Value("${rede.security.rate-limit.signup.limit:5}") int signupLimit,
@@ -61,18 +67,26 @@ public class IpRateLimiter {
 			@Value("${rede.security.rate-limit.email.limit:5}") int emailLimit,
 			@Value("${rede.security.rate-limit.email.window-minutes:15}") long emailWindowMinutes,
 			@Value("${rede.security.rate-limit.2fa.limit:20}") int twoFactorLimit,
-			@Value("${rede.security.rate-limit.2fa.window-minutes:15}") long twoFactorWindowMinutes) {
+			@Value("${rede.security.rate-limit.2fa.window-minutes:15}") long twoFactorWindowMinutes,
+			@Value("${rede.security.rate-limit.contribution.limit:5}") int contributionLimit,
+			@Value("${rede.security.rate-limit.contribution.window-minutes:60}") long contributionWindowMinutes,
+			@Value("${rede.security.rate-limit.refresh.limit:120}") int refreshLimit,
+			@Value("${rede.security.rate-limit.refresh.window-minutes:15}") long refreshWindowMinutes) {
 		this.clock = clock;
 		this.signupLimit = signupLimit;
 		this.loginLimit = loginLimit;
 		this.passwordLimit = passwordLimit;
 		this.emailLimit = emailLimit;
 		this.twoFactorLimit = twoFactorLimit;
+		this.contributionLimit = contributionLimit;
 		this.signupWindowMs = signupWindowMinutes * 60_000L;
 		this.loginWindowMs = loginWindowMinutes * 60_000L;
 		this.passwordWindowMs = passwordWindowMinutes * 60_000L;
 		this.emailWindowMs = emailWindowMinutes * 60_000L;
 		this.twoFactorWindowMs = twoFactorWindowMinutes * 60_000L;
+		this.contributionWindowMs = contributionWindowMinutes * 60_000L;
+		this.refreshLimit = refreshLimit;
+		this.refreshWindowMs = refreshWindowMinutes * 60_000L;
 	}
 
 	/**
@@ -110,6 +124,8 @@ public class IpRateLimiter {
 			case PASSWORD -> passwordWindowMs;
 			case EMAIL -> emailWindowMs;
 			case TWO_FACTOR -> twoFactorWindowMs;
+			case CONTRIBUTION -> contributionWindowMs;
+			case REFRESH -> refreshWindowMs;
 			default -> 0L;
 		};
 	}
@@ -121,6 +137,8 @@ public class IpRateLimiter {
 			case PASSWORD -> passwordLimit;
 			case EMAIL -> emailLimit;
 			case TWO_FACTOR -> twoFactorLimit;
+			case CONTRIBUTION -> contributionLimit;
+			case REFRESH -> refreshLimit;
 			default -> 0;
 		};
 	}

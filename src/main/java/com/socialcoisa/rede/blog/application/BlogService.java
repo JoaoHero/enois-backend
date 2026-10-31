@@ -3,8 +3,12 @@ package com.socialcoisa.rede.blog.application;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -62,12 +66,15 @@ public class BlogService {
 	private final com.socialcoisa.rede.shared.sanctions.SanctionGateReader sanctionGate;
 	private final com.socialcoisa.rede.shared.security.SuspiciousText suspiciousText;
 	private final Clock clock;
+	private final com.socialcoisa.rede.coin.application.CoinService coins;
 
 	public BlogService(BlogRepository blogs, BlogPostRepository posts, BlogSubscriptionRepository subscriptions,
 			PublishPostUseCase publishPost, DeletePostUseCase deletePost, NotificationService notifications,
 			UserProfileRepository profiles, ApplicationEventPublisher events,
 			com.socialcoisa.rede.shared.sanctions.SanctionGateReader sanctionGate,
-			com.socialcoisa.rede.shared.security.SuspiciousText suspiciousText, Clock clock) {
+			com.socialcoisa.rede.shared.security.SuspiciousText suspiciousText, Clock clock,
+			com.socialcoisa.rede.coin.application.CoinService coins) {
+		this.coins = coins;
 		this.blogs = blogs;
 		this.posts = posts;
 		this.subscriptions = subscriptions;
@@ -84,12 +91,20 @@ public class BlogService {
 	/** Vitrine: os blogs criados, mais recentes primeiro. */
 	@Transactional(readOnly = true)
 	public List<BlogSummaryView> directory(String query, int limit) {
-		return blogs.findAll(query, limit).stream()
+		List<Blog> page = blogs.findAll(query, limit);
+		// Bans, authors and post counts of the page in one query each, instead of one per blog.
+		Set<String> banned = sanctionGate.bannedAmong(page.stream().map(Blog::userId).collect(Collectors.toSet()));
+		List<Blog> listed = page.stream()
 			// Blog de conta banida sai da vitrine (o perfil já dá 404).
-			.filter(blog -> !sanctionGate.banned(blog.userId()))
+			.filter(blog -> !banned.contains(blog.userId()))
 			.filter(blog -> !suspiciousText.matches(blog.title(), blog.slug()))
-			.map(blog -> BlogSummaryView.from(blog, profiles.findById(blog.userId()).orElse(null),
-				posts.countByBlog(blog.id())))
+			.toList();
+		Map<String, UserProfile> authors = profiles.findAllByIds(listed.stream().map(Blog::userId).toList())
+			.stream()
+			.collect(Collectors.toMap(UserProfile::id, Function.identity()));
+		Map<String, Integer> postCounts = posts.countByBlogs(listed.stream().map(Blog::id).toList());
+		return listed.stream()
+			.map(blog -> BlogSummaryView.from(blog, authors.get(blog.userId()), postCounts.getOrDefault(blog.id(), 0)))
 			.toList();
 	}
 
@@ -158,6 +173,7 @@ public class BlogService {
 		var pointer = publishPost.publish(new PublishPostCommand(new UserId(userId), PostType.BLOG, cleanTitle, null,
 			null, List.of("blog"), List.of(), null, List.of()));
 		String postId = pointer.id();
+		coins.recordPresence(userId);
 		BlogPost saved = posts.save(BlogPost.publish(postId, blog.id(), userId, cleanTitle, cleanBody, format,
 			Instant.now(clock)));
 		if (notify) {

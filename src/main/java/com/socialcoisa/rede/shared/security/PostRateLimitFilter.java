@@ -69,12 +69,20 @@ public class PostRateLimitFilter extends OncePerRequestFilter {
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
 			throws ServletException, IOException {
+		// Logado: teto pelo hash da sessão (120/min). Anônimo: teto pelo IP (300/min).
+		// Nunca os dois juntos — usuário logado não herda rate limit de outra pessoa no mesmo IP.
 		String token = request.getHeader("X-Session-Token");
-		boolean userAllowed = !StringUtils.hasText(token)
-			|| tryAcquire("u:" + Hashes.sha256Hex(token.trim()), userLimit);
-		boolean ipAllowed = tryAcquire("i:" + ipResolver.resolve(request), ipLimit);
-		if (!userAllowed || !ipAllowed) {
-			writeTooManyRequests(response);
+		boolean allowed;
+		if (StringUtils.hasText(token)) {
+			allowed = tryAcquire("u:" + Hashes.sha256Hex(token.trim()), userLimit);
+		}
+		else {
+			allowed = tryAcquire("i:" + ipResolver.resolve(request), ipLimit);
+		}
+		if (!allowed) {
+			LOG.warn("Rate limit de POST atingido");
+			RateLimitResponses.send(request, response, 60, "RATE_LIMITED",
+				"Muitas acoes em pouco tempo. Espere um minuto e tente de novo.");
 			return;
 		}
 		chain.doFilter(request, response);
@@ -113,14 +121,4 @@ public class PostRateLimitFilter extends OncePerRequestFilter {
 		});
 	}
 
-	private void writeTooManyRequests(HttpServletResponse response) throws IOException {
-		LOG.warn("Rate limit de POST atingido");
-		response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
-		response.setHeader("Retry-After", "60");
-		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-		response.setCharacterEncoding("UTF-8");
-		response.getWriter().write("{\"code\":\"RATE_LIMITED\","
-			+ "\"message\":\"Muitas ações em pouco tempo. Espere um minuto e tente de novo.\","
-			+ "\"timestamp\":\"" + clock.instant() + "\"}");
-	}
 }

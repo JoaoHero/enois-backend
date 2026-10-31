@@ -36,19 +36,22 @@ public class SupportService {
 	private final NotificationService notifications;
 	private final com.socialcoisa.rede.shared.security.OutboundUrlGuard outboundUrlGuard;
 	private final SupportStatusNotifier statusNotifier;
+	private final SupportThreadService thread;
 	private final ApplicationEventPublisher events;
 	private final Clock clock;
 	private final String supportEmail;
 
 	public SupportService(SupportRequestRepository repository, EmailService emailService,
 			NotificationService notifications, com.socialcoisa.rede.shared.security.OutboundUrlGuard outboundUrlGuard,
-			SupportStatusNotifier statusNotifier, ApplicationEventPublisher events, Clock clock,
+			SupportStatusNotifier statusNotifier, SupportThreadService thread, ApplicationEventPublisher events,
+			Clock clock,
 			@Value("${rede.support.email:}") String supportEmail) {
 		this.repository = repository;
 		this.emailService = emailService;
 		this.notifications = notifications;
 		this.outboundUrlGuard = outboundUrlGuard;
 		this.statusNotifier = statusNotifier;
+		this.thread = thread;
 		this.events = events;
 		this.clock = clock;
 		this.supportEmail = supportEmail;
@@ -162,11 +165,13 @@ public class SupportService {
 		SupportRequest withReply = request.withReply(clean, adminId, clock.instant());
 		SupportRequest saved = repository.save(
 			withReply.status() == SupportStatus.OPEN ? withReply.withStatus(SupportStatus.IN_PROGRESS) : withReply);
+		var threadMessage = thread.addFromPanel(saved.id(), clean);
 		emailService.sendSupportReplyEmail(saved.contactEmail(), saved.subject(), clean);
 		if (StringUtils.hasText(saved.userId())) {
 			notifications.create(saved.userId(), "SUPORTE", adminId, "Resposta do suporte", clean,
 				"/suporte", "Ver");
 		}
+		events.publishEvent(new SupportReplyEvent(saved.id(), threadMessage.id(), adminId, clean));
 		return saved;
 	}
 

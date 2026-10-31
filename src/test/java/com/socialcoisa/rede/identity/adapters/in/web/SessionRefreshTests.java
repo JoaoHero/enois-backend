@@ -18,7 +18,6 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.socialcoisa.rede.shared.web.TestAuthHelper;
 import com.socialcoisa.rede.shared.web.TestDatabase;
@@ -61,11 +60,11 @@ class SessionRefreshTests {
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(objectMapper.writeValueAsString(Map.of("refreshToken", session.refreshToken()))))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.token").isNotEmpty())
-			.andExpect(jsonPath("$.refreshToken").isNotEmpty())
+			.andExpect(jsonPath("$.token").doesNotExist())
+			.andExpect(jsonPath("$.refreshToken").doesNotExist())
 			.andReturn();
 
-		String newToken = objectMapper.readTree(refreshed.getResponse().getContentAsString()).get("token").asText();
+		String newToken = TestAuthHelper.sessionToken(refreshed);
 		assertThat(newToken).isNotEqualTo(session.token());
 
 		mockMvc.perform(get("/auth/me").header("X-Session-Token", newToken))
@@ -94,7 +93,7 @@ class SessionRefreshTests {
 				.content(objectMapper.writeValueAsString(Map.of("refreshToken", session.refreshToken()))))
 			.andExpect(status().isOk())
 			.andReturn();
-		JsonNode body = objectMapper.readTree(first.getResponse().getContentAsString());
+		String rotatedRefresh = TestAuthHelper.refreshToken(first);
 
 		// O refresh token antigo foi revogado pela rotacao e nao pode ser reutilizado.
 		mockMvc.perform(post("/auth/refresh")
@@ -106,7 +105,7 @@ class SessionRefreshTests {
 		// O novo continua valido.
 		mockMvc.perform(post("/auth/refresh")
 				.contentType(MediaType.APPLICATION_JSON)
-				.content(objectMapper.writeValueAsString(Map.of("refreshToken", body.get("refreshToken").asText()))))
+				.content(objectMapper.writeValueAsString(Map.of("refreshToken", rotatedRefresh))))
 			.andExpect(status().isOk());
 	}
 }

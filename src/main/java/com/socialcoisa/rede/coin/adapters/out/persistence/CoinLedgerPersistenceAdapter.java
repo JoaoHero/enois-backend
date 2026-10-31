@@ -7,11 +7,13 @@ import java.util.Optional;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Repository;
 
 import com.socialcoisa.rede.coin.application.port.out.CoinLedgerRepository;
 import com.socialcoisa.rede.coin.domain.CoinAccount;
 import com.socialcoisa.rede.coin.domain.CoinEntry;
+import com.socialcoisa.rede.coin.domain.CoinEntryPage;
 
 @Repository
 class CoinLedgerPersistenceAdapter implements CoinLedgerRepository {
@@ -70,9 +72,33 @@ class CoinLedgerPersistenceAdapter implements CoinLedgerRepository {
 	}
 
 	@Override
+	public java.util.List<String> refIdsOf(String accountId, com.socialcoisa.rede.coin.domain.CoinEntry.Kind kind) {
+		return entries.findRefIdsByAccountIdAndKind(accountId, kind);
+	}
+
+	@Override
 	public List<CoinEntry> recentEntries(String accountId, int limit) {
 		return entries.findByAccountIdOrderByCreatedAtDesc(accountId, PageRequest.of(0, Math.max(1, limit)))
 			.stream().map(CoinEntryJpaEntity::toDomain).toList();
+	}
+
+	@Override
+	public CoinEntryPage entryPage(String accountId, int pageNumber, int size, Instant from, Instant to) {
+		var page = PageRequest.of(pageNumber, size);
+		Slice<CoinEntryJpaEntity> result;
+		if (from != null && to != null) {
+			result = entries.findByAccountIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDescIdDesc(
+					accountId, from, to, page);
+		} else if (from != null) {
+			result = entries.findByAccountIdAndCreatedAtGreaterThanEqualOrderByCreatedAtDescIdDesc(
+					accountId, from, page);
+		} else if (to != null) {
+			result = entries.findByAccountIdAndCreatedAtLessThanOrderByCreatedAtDescIdDesc(
+					accountId, to, page);
+		} else {
+			result = entries.findByAccountIdOrderByCreatedAtDescIdDesc(accountId, page);
+		}
+		return new CoinEntryPage(result.stream().map(CoinEntryJpaEntity::toDomain).toList(), result.hasNext());
 	}
 
 	@Override
@@ -106,7 +132,18 @@ class CoinLedgerPersistenceAdapter implements CoinLedgerRepository {
 	}
 
 	@Override
+	public long totalBalance() {
+		return accounts.sumBalances();
+	}
+
+	@Override
 	public long countRewardsByRefPrefix(String prefix) {
 		return entries.countByKindAndRefIdStartingWith(com.socialcoisa.rede.coin.domain.CoinEntry.Kind.REWARD, prefix);
+	}
+
+	@Override
+	public long sumAmountByKindBetween(com.socialcoisa.rede.coin.domain.CoinEntry.Kind kind, Instant from,
+			Instant to) {
+		return entries.sumAmountByKindBetween(kind, from, to);
 	}
 }

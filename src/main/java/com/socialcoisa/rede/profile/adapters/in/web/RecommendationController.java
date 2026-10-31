@@ -36,11 +36,10 @@ class RecommendationController {
 	}
 
 	@PostMapping("/{targetId}")
-	ResponseEntity<String> recommend(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken,
+	ResponseEntity<String> recommend(@RequestHeader("X-Session-Token") String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String targetId, @RequestBody(required = false) RecommendBody body) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String hash = idempotency.hash(Map.of("targetId", targetId, "comment", body != null ? body.comment() : ""));
 		return idempotency.execute(user.id(), "POST", "/api/recommendations/{targetId}", idempotencyKey, hash,
 			() -> new CommandResponse(201, RecommendationView.from(service.recommend(user.id().value(), targetId,
@@ -48,11 +47,10 @@ class RecommendationController {
 	}
 
 	@DeleteMapping("/{targetId}")
-	ResponseEntity<String> remove(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken,
+	ResponseEntity<String> remove(@RequestHeader("X-Session-Token") String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String targetId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String hash = idempotency.hash(Map.of("targetId", targetId));
 		return idempotency.execute(user.id(), "DELETE", "/api/recommendations/{targetId}", idempotencyKey, hash,
 			() -> {

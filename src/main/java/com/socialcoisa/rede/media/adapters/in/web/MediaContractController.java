@@ -43,11 +43,10 @@ class MediaContractController {
 	}
 
 	@PostMapping("/uploads")
-	ResponseEntity<String> upload(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<String> upload(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@RequestBody UploadRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String hash = idempotency.hash(request);
 		return idempotency.execute(user.id(), "POST", "/api/media/uploads", idempotencyKey, hash,
 			() -> new CommandResponse(201, createMediaUploadUseCase.createUpload(new CreateMediaUploadCommand(user.id(),
@@ -68,11 +67,10 @@ class MediaContractController {
 	}
 
 	@DeleteMapping("/{mediaId}")
-	ResponseEntity<String> delete(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<String> delete(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String mediaId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String hash = idempotency.hash(Map.of("mediaId", mediaId));
 		return idempotency.execute(user.id(), "DELETE", "/api/media/{mediaId}", idempotencyKey, hash,
 			() -> new CommandResponse(200, requestMediaDeletionUseCase.requestDeletion(new RequestMediaDeletionCommand(

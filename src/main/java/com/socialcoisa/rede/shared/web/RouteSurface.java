@@ -7,10 +7,9 @@ import java.util.Locale;
 import java.util.Set;
 
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.server.PathContainer;
 import org.springframework.stereotype.Component;
-import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
 import org.springframework.web.util.pattern.PathPattern;
 import org.springframework.web.util.pattern.PathPatternParser;
 
@@ -20,6 +19,12 @@ import org.springframework.web.util.pattern.PathPatternParser;
  * <p>Nenhuma lista escrita à mão: quando um controller entra, o caminho dele entra aqui sozinho,
  * e quando sai, sai. Padrões com partes variáveis (<code>/posts/&#123;id&#125;</code>) são
  * comparados um a um; caminhos literais ficam num conjunto para resposta em tempo constante.
+ *
+ * <p>O índice cobre todo {@link RequestMappingInfoHandlerMapping} do contexto, não só os
+ * controllers da aplicação (<code>RequestMappingHandlerMapping</code>): o Actuator registra seus
+ * endpoints (<code>/actuator/**</code>) num bean irmão (<code>WebMvcEndpointHandlerMapping</code>),
+ * que compartilha o mesmo ancestral mas não é o mesmo bean — ignorá-lo fazia o Actuator cair no
+ * mesmo catch-all 200-vazio de uma rota inexistente mesmo estando ativo e mapeado.
  *
  * <p>O <code>/v1</code> é um alias: um caminho versionado é conhecido quando o caminho de baixo é.
  * O índice é montado na primeira pergunta (não no boot) para não atrasar a inicialização, e se a
@@ -32,7 +37,7 @@ class RouteSurface {
 	// Preguiçoso de propósito: filtros são criados antes do resto do contexto no boot, e puxar o
 	// roteador nessa fase arrasta a configuração WebMvc/JPA inteira para antes da hora. O índice
 	// só precisa existir quando a primeira requisição chega.
-	private final ObjectProvider<RequestMappingHandlerMapping> mappings;
+	private final ObjectProvider<List<RequestMappingInfoHandlerMapping>> mappings;
 
 	private static final String V1_ALIAS = "/v1";
 
@@ -40,7 +45,7 @@ class RouteSurface {
 	private volatile List<PathPattern> variaveis;
 	private volatile boolean completo;
 
-	RouteSurface(@Qualifier("requestMappingHandlerMapping") ObjectProvider<RequestMappingHandlerMapping> mappings) {
+	RouteSurface(ObjectProvider<List<RequestMappingInfoHandlerMapping>> mappings) {
 		this.mappings = mappings;
 	}
 
@@ -79,8 +84,8 @@ class RouteSurface {
 		if (completo) {
 			return;
 		}
-		RequestMappingHandlerMapping roteador = mappings.getIfAvailable();
-		if (roteador == null) {
+		List<RequestMappingInfoHandlerMapping> roteadores = mappings.getIfAvailable();
+		if (roteadores == null || roteadores.isEmpty()) {
 			return;
 		}
 		try {
@@ -88,25 +93,27 @@ class RouteSurface {
 			List<PathPattern> variaveisNovas = new ArrayList<>();
 			final boolean[] irregular = { false };
 			PathPatternParser parser = PathPatternParser.defaultInstance;
-			roteador.getHandlerMethods().keySet().forEach(info -> {
-				for (String padrao : info.getPatternValues()) {
-					if (padrao == null || padrao.isBlank()) {
-						continue;
+			for (RequestMappingInfoHandlerMapping roteador : roteadores) {
+				roteador.getHandlerMethods().keySet().forEach(info -> {
+					for (String padrao : info.getPatternValues()) {
+						if (padrao == null || padrao.isBlank()) {
+							continue;
+						}
+						if (padrao.indexOf('{') < 0 && padrao.indexOf('*') < 0) {
+							literaisNovos.add(padrao.toLowerCase(Locale.ROOT));
+							continue;
+						}
+						try {
+							variaveisNovas.add(parser.parse(padrao));
+						}
+						catch (RuntimeException padraoIrregular) {
+							// Um padrão que este analisador não entende é tratado como conhecido:
+							// nada que o roteador registrou pode ficar de fora da superfície.
+							irregular[0] = true;
+						}
 					}
-					if (padrao.indexOf('{') < 0 && padrao.indexOf('*') < 0) {
-						literaisNovos.add(padrao.toLowerCase(Locale.ROOT));
-						continue;
-					}
-					try {
-						variaveisNovas.add(parser.parse(padrao));
-					}
-					catch (RuntimeException padraoIrregular) {
-						// Um padrão que este analisador não entende é tratado como conhecido:
-						// nada que o roteador registrou pode ficar de fora da superfície.
-						irregular[0] = true;
-					}
-				}
-			});
+				});
+			}
 			if (irregular[0]) {
 				return;
 			}

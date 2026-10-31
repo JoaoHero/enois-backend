@@ -9,6 +9,8 @@ import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.socialcoisa.rede.identity.application.port.out.TwoFactorRepository;
 import com.socialcoisa.rede.identity.domain.TwoFactorChallenge;
@@ -34,20 +36,50 @@ class TwoFactorPersistenceAdapter implements TwoFactorRepository {
 
 	@Override
 	public void saveChallenge(TwoFactorChallenge challenge) {
-		if (findChallenge(challenge.id()).isPresent()) {
-			jdbc.update("""
-					update two_factor_challenges set code_hash = ?, attempts = ?, expires_at = ?, consumed_at = ?
-					where id = ?""",
-				challenge.codeHash(), challenge.attempts(), challenge.expiresAt(), challenge.consumedAt(),
-				challenge.id());
-			return;
-		}
 		jdbc.update("""
 				insert into two_factor_challenges (id, user_id, method, code_hash, attempts, expires_at,
 					consumed_at, created_at)
 				values (?, ?, ?, ?, ?, ?, ?, ?)""",
 			challenge.id(), challenge.userId(), challenge.method().name(), challenge.codeHash(), challenge.attempts(),
-			challenge.expiresAt(), challenge.consumedAt(), challenge.createdAt());
+			java.sql.Timestamp.from(challenge.expiresAt()),
+			challenge.consumedAt() == null ? null : java.sql.Timestamp.from(challenge.consumedAt()),
+			java.sql.Timestamp.from(challenge.createdAt()));
+	}
+
+	@Override
+	public boolean replaceCode(String challengeId, String codeHash, Instant expiresAt) {
+		return jdbc.update("""
+				update two_factor_challenges set code_hash = ?, attempts = 0, expires_at = ?
+				where id = ? and consumed_at is null""", codeHash, java.sql.Timestamp.from(expiresAt), challengeId) == 1;
+	}
+
+	@Override
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public AttemptClaim claimAttempt(String challengeId) {
+		int claimed = jdbc.update("""
+				update two_factor_challenges set attempts = attempts + 1
+				where id = ? and attempts < ? and consumed_at is null
+				""", challengeId, TwoFactorChallenge.MAX_ATTEMPTS);
+		if (claimed == 1) {
+			return AttemptClaim.CLAIMED;
+		}
+		boolean consumed = !jdbc.queryForList(
+			"select id from two_factor_challenges where id = ? and consumed_at is not null", String.class, challengeId)
+			.isEmpty();
+		return consumed ? AttemptClaim.CONSUMED : AttemptClaim.OUT_OF_ATTEMPTS;
+	}
+
+	@Override
+	public boolean consumeChallenge(String challengeId, Instant now) {
+		return jdbc.update("update two_factor_challenges set consumed_at = ? where id = ? and consumed_at is null",
+			java.sql.Timestamp.from(now), challengeId) == 1;
+	}
+
+	@Override
+	public boolean markTotpStepUsed(String userId, long step) {
+		return jdbc.update("""
+				update user_two_factor_secrets set totp_last_step = ?
+				where user_id = ? and (totp_last_step is null or totp_last_step < ?)""", step, userId, step) > 0;
 	}
 
 	@Override
@@ -66,21 +98,22 @@ class TwoFactorPersistenceAdapter implements TwoFactorRepository {
 
 	@Override
 	public int deleteExpiredChallenges(Instant now) {
-		return jdbc.update("delete from two_factor_challenges where expires_at < ?", now);
+		return jdbc.update("delete from two_factor_challenges where expires_at < ?", java.sql.Timestamp.from(now));
 	}
 
 	@Override
 	public void savePendingSecret(String userId, String encryptedSecret, Instant now) {
+		java.sql.Timestamp ts = java.sql.Timestamp.from(now);
 		if (findPendingSecret(userId).isPresent() || findActiveSecret(userId).isPresent()) {
 			jdbc.update("update user_two_factor_secrets set pending_secret_encrypted = ?, pending_created_at = ?, updated_at = ? where user_id = ?",
-				encryptedSecret, now, now, userId);
+				encryptedSecret, ts, ts, userId);
 			return;
 		}
 		jdbc.update("""
 				insert into user_two_factor_secrets (user_id, totp_secret_encrypted, pending_secret_encrypted,
 					pending_created_at, updated_at)
 				values (?, null, ?, ?, ?)""",
-			userId, encryptedSecret, now, now);
+			userId, encryptedSecret, ts, ts);
 	}
 
 	@Override
@@ -101,7 +134,7 @@ class TwoFactorPersistenceAdapter implements TwoFactorRepository {
 		jdbc.update("""
 				update user_two_factor_secrets set totp_secret_encrypted = ?, pending_secret_encrypted = null,
 					pending_created_at = null, updated_at = ? where user_id = ?""",
-			encryptedSecret, now, userId);
+			encryptedSecret, java.sql.Timestamp.from(now), userId);
 	}
 
 	@Override
@@ -125,9 +158,10 @@ class TwoFactorPersistenceAdapter implements TwoFactorRepository {
 	@Override
 	public void saveBackupCodes(String userId, List<String> codeHashes, Instant now) {
 		deleteBackupCodes(userId);
+		java.sql.Timestamp ts = java.sql.Timestamp.from(now);
 		for (String hash : codeHashes) {
 			jdbc.update("insert into two_factor_backup_codes (code_hash, user_id, used_at, created_at) values (?, ?, null, ?)",
-				hash, userId, now);
+				hash, userId, ts);
 		}
 	}
 
@@ -142,7 +176,7 @@ class TwoFactorPersistenceAdapter implements TwoFactorRepository {
 	public boolean consumeBackupCode(String userId, String codeHash, Instant now) {
 		return jdbc.update("""
 				update two_factor_backup_codes set used_at = ? where code_hash = ? and user_id = ? and used_at is null""",
-			now, codeHash, userId) > 0;
+			java.sql.Timestamp.from(now), codeHash, userId) > 0;
 	}
 
 	@Override
@@ -151,14 +185,26 @@ class TwoFactorPersistenceAdapter implements TwoFactorRepository {
 	}
 
 	private static TwoFactorChallenge mapChallenge(ResultSet rs) throws SQLException {
+		String methodStr = rs.getString("method");
+		TwoFactorMethod method = null;
+		if (methodStr != null && !methodStr.isBlank()) {
+			try {
+				method = TwoFactorMethod.valueOf(methodStr.trim().toUpperCase());
+			} catch (IllegalArgumentException ignored) {
+				method = null;
+			}
+		}
+		java.sql.Timestamp expiresAt = rs.getTimestamp("expires_at");
+		java.sql.Timestamp consumedAt = rs.getTimestamp("consumed_at");
+		java.sql.Timestamp createdAt = rs.getTimestamp("created_at");
 		return TwoFactorChallenge.restore(
 			rs.getString("id"),
 			rs.getString("user_id"),
-			TwoFactorMethod.valueOf(rs.getString("method")),
+			method,
 			rs.getString("code_hash"),
 			rs.getInt("attempts"),
-			rs.getTimestamp("expires_at").toInstant(),
-			rs.getTimestamp("consumed_at") == null ? null : rs.getTimestamp("consumed_at").toInstant(),
-			rs.getTimestamp("created_at").toInstant());
+			expiresAt == null ? null : expiresAt.toInstant(),
+			consumedAt == null ? null : consumedAt.toInstant(),
+			createdAt == null ? null : createdAt.toInstant());
 	}
 }

@@ -1,12 +1,14 @@
 package com.socialcoisa.rede.shared.web;
 
 import java.io.IOException;
+import java.util.Arrays;
 
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -18,6 +20,8 @@ import jakarta.servlet.http.HttpServletResponse;
  */
 @Component
 class SecurityHeadersFilter extends OncePerRequestFilter {
+
+	private static final String SESSION_COOKIE = "enois_session";
 
 	private static final String STRICT_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
@@ -38,7 +42,19 @@ class SecurityHeadersFilter extends OncePerRequestFilter {
 		response.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
 		// O trafego chega pelo ALB (HTTPS); includeSubDomains protege os subdominios do mesmo host.
 		response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+		if (isAuthenticated(request)) {
+			// Per-user data must not be kept by the browser or shared caches.
+			response.setHeader("Cache-Control", "no-store");
+		}
 		filterChain.doFilter(request, response);
+	}
+
+	private boolean isAuthenticated(HttpServletRequest request) {
+		if (request.getHeader("X-Session-Token") != null) {
+			return true;
+		}
+		Cookie[] cookies = request.getCookies();
+		return cookies != null && Arrays.stream(cookies).anyMatch(c -> SESSION_COOKIE.equals(c.getName()));
 	}
 
 	private boolean isDocumentationPath(String path) {

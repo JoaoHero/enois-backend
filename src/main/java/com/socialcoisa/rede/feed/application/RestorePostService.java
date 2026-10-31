@@ -9,6 +9,9 @@ import com.socialcoisa.rede.feed.application.port.out.PostRepository;
 import com.socialcoisa.rede.feed.domain.Post;
 import com.socialcoisa.rede.feed.domain.PostId;
 import com.socialcoisa.rede.feed.domain.UserId;
+import com.socialcoisa.rede.feed.domain.AuthorIdentity;
+import com.socialcoisa.rede.profile.application.ContributorTagView;
+import com.socialcoisa.rede.profile.application.NameStyleView;
 import com.socialcoisa.rede.profile.application.port.out.UserProfileRepository;
 import com.socialcoisa.rede.shared.web.ApiException;
 
@@ -22,13 +25,16 @@ public class RestorePostService implements RestorePostUseCase {
 	private final FeedDistributionService feedDistributionService;
 	private final AuditLogRepository auditLogRepository;
 	private final UserProfileRepository userProfileRepository;
+	private final com.socialcoisa.rede.contributions.application.port.out.UserSealRepository userSeals;
 
 	public RestorePostService(PostRepository postRepository, FeedDistributionService feedDistributionService,
-			AuditLogRepository auditLogRepository, UserProfileRepository userProfileRepository) {
+			AuditLogRepository auditLogRepository, UserProfileRepository userProfileRepository,
+			com.socialcoisa.rede.contributions.application.port.out.UserSealRepository userSeals) {
 		this.postRepository = postRepository;
 		this.feedDistributionService = feedDistributionService;
 		this.auditLogRepository = auditLogRepository;
 		this.userProfileRepository = userProfileRepository;
+		this.userSeals = userSeals;
 	}
 
 	@Override
@@ -47,7 +53,11 @@ public class RestorePostService implements RestorePostUseCase {
 		auditLogRepository.record(userId, "POST_RESTORED", saved.id().value(), null);
 		var author = userProfileRepository.findById(saved.authorId().value()).orElse(null);
 		return author != null
-			? PostView.from(saved, author.username(), author.name(), author.avatar(), author.allBadges()).withAvatarFrame(author.avatarFrame())
+			? PostView.from(saved, author.username(), author.name(), author.avatar(), author.allBadges())
+				.withAvatarFrame(author.avatarFrame())
+				.withAuthorStyle(saved.authorIdentity() == AuthorIdentity.SOCIAL ? NameStyleView.from(author) : null)
+				.withContributor(saved.authorIdentity() == AuthorIdentity.SOCIAL && userSeals.hasActiveSeal(author.id())
+					? ContributorTagView.from(author) : null)
 			: PostView.from(saved);
 	}
 }

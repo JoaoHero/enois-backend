@@ -107,6 +107,10 @@ class CatalogSearchTests {
 			.map(item -> item.get("slug").asText()).toList()).containsExactly(tag);
 		assertThat(search("/mentors", "%_!", 200).get("items").valueStream()
 			.map(item -> item.get("id").asText()).toList()).containsExactly("mentor_" + tag);
+		JsonNode byExpertise = mapper.readTree(mockMvc.perform(get("/mentors").param("expertise", literal))
+			.andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+		assertThat(byExpertise.get("items").valueStream().map(item -> item.get("id").asText()).toList())
+			.containsExactly("mentor_" + tag);
 	}
 
 	private JsonNode search(String path, String query, int limit) throws Exception {

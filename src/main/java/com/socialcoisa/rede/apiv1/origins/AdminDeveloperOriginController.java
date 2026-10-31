@@ -37,29 +37,26 @@ class AdminDeveloperOriginController {
 
 	@GetMapping
 	List<DeveloperOriginService.AdminOriginView> list(
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestParam(defaultValue = "200") int limit) {
-		adminGuard.requireAdmin(currentUserResolver.resolve(userId, sessionToken));
+		adminGuard.requireAdmin(currentUserResolver.resolve(sessionToken));
 		return origins.listAll(limit);
 	}
 
 	@PostMapping("/{id}/block")
 	DeveloperOriginService.AdminOriginView block(
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String id, @RequestBody(required = false) BlockOriginRequest request) {
-		adminGuard.requireAdmin(currentUserResolver.resolve(userId, sessionToken));
+		adminGuard.requireAdmin(currentUserResolver.resolve(sessionToken));
 		origins.blockById(id, request == null ? "Bloqueio manual da administracao" : request.reason());
 		return origins.byId(id);
 	}
 
 	@PostMapping("/{id}/unblock")
 	DeveloperOriginService.AdminOriginView unblock(
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String id) {
-		adminGuard.requireAdmin(currentUserResolver.resolve(userId, sessionToken));
+		adminGuard.requireAdmin(currentUserResolver.resolve(sessionToken));
 		origins.unblock(id);
 		return origins.byId(id);
 	}

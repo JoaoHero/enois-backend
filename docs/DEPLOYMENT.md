@@ -1,5 +1,47 @@
 # Deploy
 
+## Como o Énois é implantado hoje (Portainer + Docker)
+
+O deploy real **não** é Fly.io nem ArgoCD/Kubernetes: a esteira (`build-and-push.yml`) constrói a
+imagem, sobe no Harbor e **atualiza uma stack do Portainer** por API, em dois hosts:
+
+| ambiente | host | stack/container | porta |
+|---|---|---|---|
+| produção | `enois-node2` (6 vCPU, 11,68 GB) | stack `enois-prod-backend` | 8081 |
+| QA | `vmi935062` / docker-prod4 (4 vCPU, 7,76 GB) | container `enois-qa-backend` | 8105 |
+
+A produção e a QA sao **linhas de branch separadas**: o job de QA roda em push na `qa` e o de
+produção em push na `main`.
+
+### Memória do backend
+
+Medido no host em 2026-10-24 (API do Portainer, `/info` e `/stats`):
+
+| | limite do container | em uso | heap da JVM |
+|---|---|---|---|
+| produção | 6 GB (antes 4 GB) | 0,79 GB | até 3,6 GB (antes 1 GB) |
+| QA | 2 GB (antes 1 GB) | 0,55 GB | até 1,2 GB (antes 256 MB) |
+
+**O ponto que costuma passar batido:** o limite do container não é o heap. Sem
+`JAVA_TOOL_OPTIONS`, a JVM usa o padrão `MaxRAMPercentage=25%` — ou seja, com 4 GB de container a
+JVM só podia usar **1 GB** de heap e os outros 3 GB ficavam ociosos. Agora os dois ambientes têm
+`-XX:MaxRAMPercentage=60.0 -XX:+ExitOnOutOfMemoryError`: o heap cresce sob demanda e, quando
+acaba, a JVM morre com erro claro em vez de ser morta pelo kernel sem deixar rastro (o
+`ExitOnOutOfMemoryError` não cobre OOMKilled do kernel, que é o caso do ffmpeg — processo fora da
+JVM — estourando o limite).
+
+A QA ficou em 2 GB, e não 4, porque o host dela é **compartilhado** com outros três projetos
+(`apbackend_medcare`, `zmbackend` e companhia) que rodam **sem limite de memória** e já usavam
+~4,3 GB somados; o total em uso era 5,5 GB de 7,76 GB. Cabe 2 GB com folga; 4 GB disputaria memória
+com o vizinho e o OOM killer poderia escolher o container do Énois como vítima.
+
+### Fósseis (não são o deploy)
+
+- `fly.toml` — sobrou do Fly.io (`memory_mb = 2048`, `-Xmx1536m`); ninguém implanta por ele.
+- `clusters/forest-dev/applications/enois-app.yaml` — manifesto ArgoCD do cluster **dev**, removido
+  do `integration_gitops` em 2026-10-22 porque o Énois passou a ser implantado pelo Portainer. Os
+  `resources.limits.memory: 1Gi` de lá não descrevem nada que esteja rodando hoje.
+
 ## Fly.io
 
 A aplicação está configurada para deploy no Fly.io via `fly.toml`:
@@ -210,7 +252,7 @@ proxy do bucket.
 | Variável | Descrição |
 |---|---|
 | `REDE_MEDIA_FFMPEG_PATH` | Caminho do ffmpeg (padrão `ffmpeg`) |
-| `TURNSTILE_REJECT_TEST_KEYS` | Trata chaves de teste `1x000…` como captcha indisponível (padrão `true`) |
+| `TURNSTILE_TEST_KEY_POLICY` | O que fazer com chaves de teste `1x000…`: `degrade` (padrão — sobe com o captcha externo desligado e ERROR no log) ou `fatal` (recusa o boot). Chave de teste nunca conta como captcha ativo |
 | `REDE_VERSION_DETAILS_TOKEN` | Token do header `X-Version-Details` para ver uptime/Flyway/storage em `/version` |
 
 ## Migrações de Banco
@@ -219,9 +261,12 @@ As migrações Flyway em `src/main/resources/db/migration/` são executadas auto
 
 ### Scripts auxiliares
 
+Origem e destino nao tem default (escolha o alvo a cada execucao) e as senhas vem de variaveis de
+ambiente, nunca da linha de comando. Veja `--help` de cada script.
+
 ```bash
-# Exportar banco MariaDB remoto
-./scripts/db-export.sh
+# Exportar banco MariaDB (dumps/ e ignorado pelo git)
+./scripts/db-export.sh > dumps/backup.sql
 
 # Importar dump para banco local
 ./scripts/db-import.sh

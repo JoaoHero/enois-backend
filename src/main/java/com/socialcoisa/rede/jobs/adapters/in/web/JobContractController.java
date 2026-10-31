@@ -21,12 +21,14 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.socialcoisa.rede.idempotency.application.CommandResponse;
 import com.socialcoisa.rede.idempotency.application.IdempotencyApplicationService;
+import com.socialcoisa.rede.jobs.application.port.out.CompanyDirectoryReader;
 import com.socialcoisa.rede.jobs.application.port.out.ExternalJobRepository;
 import com.socialcoisa.rede.jobs.domain.ExternalJob;
 import com.socialcoisa.rede.jobs.application.JobService;
 import com.socialcoisa.rede.jobs.domain.Job;
 import com.socialcoisa.rede.jobs.domain.JobApplicationStatus;
 import com.socialcoisa.rede.jobs.domain.JobApplication;
+import com.socialcoisa.rede.profile.application.NameStyleView;
 import com.socialcoisa.rede.shared.web.ApiException;
 import com.socialcoisa.rede.shared.web.CurrentUser;
 import com.socialcoisa.rede.shared.web.CurrentUserResolver;
@@ -51,6 +53,7 @@ class JobContractController {
 	private final boolean externalListingEnabled;
 	private final int externalListingLimit;
 	private final tools.jackson.databind.ObjectMapper objectMapper;
+	private final com.socialcoisa.rede.companies.application.CompanyService companyService;
 
 	JobContractController(IdempotencyApplicationService idempotency, CurrentUserResolver currentUserResolver,
 			JobService jobService, CursorCodec cursorCodec,
@@ -62,7 +65,9 @@ class JobContractController {
 			@org.springframework.beans.factory.annotation.Value("${rede.jobs.import.external-listing-enabled:false}") boolean externalListingEnabled,
 			@org.springframework.beans.factory.annotation.Value("${rede.jobs.import.external-listing-limit:20}") int externalListingLimit,
 			com.socialcoisa.rede.jobs.application.port.out.CompanyDirectoryReader companyDirectory,
-			com.socialcoisa.rede.jobs.application.ExternalJobSubmissionService externalJobSubmission) {
+			com.socialcoisa.rede.jobs.application.ExternalJobSubmissionService externalJobSubmission,
+			com.socialcoisa.rede.companies.application.CompanyService companyService) {
+		this.companyService = companyService;
 		this.idempotency = idempotency;
 		this.currentUserResolver = currentUserResolver;
 		this.jobService = jobService;
@@ -81,10 +86,9 @@ class JobContractController {
 	/** Candidaturas recebidas (somente quem publicou a vaga). */
 	@GetMapping("/{jobId}/applications")
 	List<ApplicationView> applications(@PathVariable String jobId,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestParam(defaultValue = "50") int limit) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return jobService.applicationsOf(jobId, user.id().value(), limit).stream()
 			.map(application -> new ApplicationView(application.id(), application.jobId(), application.status().name(),
 				application.appliedAt().toString(), application.answers().size(),
@@ -99,13 +103,12 @@ class JobContractController {
 
 	@PostMapping
 	ResponseEntity<JobView> create(@RequestBody CreateJobRequest body,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		Job job = jobService.create(body.title(), body.company(), body.logo(), body.location(), body.type(), body.level(),
 			body.salary(), body.currency(), body.salaryMin(), body.salaryMax(), body.salaryPeriod(),
 			body.description(), body.skills(), toFieldInputs(body.applicationFields()), user.id().value(),
-			body.communityAgreement());
+			body.communityAgreement(), body.companyId());
 		return ResponseEntity.status(HttpStatus.CREATED).body(toView(job, user.id().value(), false, false, 0));
 	}
 
@@ -116,7 +119,6 @@ class JobContractController {
 			@RequestParam(required = false) List<String> skills,
 			@RequestParam(required = false) String source, @RequestParam(required = false) String platform,
 			@RequestParam(required = false) String cursor, @RequestParam(defaultValue = "20") int limit,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
 		// As ABAS: EXTERNAL devolve SO as externas (com filtro de agregador); INTERNAL nunca
 		// mistura. Sem `source` mantem o comportamento antigo (internas + externas na 1a pagina).
@@ -137,15 +139,14 @@ class JobContractController {
 			|| org.springframework.util.StringUtils.hasText(location)
 			|| (skills != null && !skills.isEmpty());
 		boolean firstPage = cursor == null;
-		return page(jobs, limit, viewerId(userId, sessionToken), PageKind.LIST,
+		return page(jobs, limit, viewerId(sessionToken), PageKind.LIST,
 			!soInternas && firstPage && !structuralFilters, query);
 	}
 
 	/** As FAVORITAS: ids salvos resolvidos dos dois lados (interna e externa), na ordem do save. */
 	@GetMapping("/saved")
-	PageResponse<JobView> saved(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		String viewer = viewerId(userId, sessionToken);
+	PageResponse<JobView> saved(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		String viewer = viewerId(sessionToken);
 		if (viewer == null) {
 			throw new com.socialcoisa.rede.shared.web.ApiException(401, "UNAUTHENTICATED",
 				"Sessao obrigatoria para ver as vagas favoritas.");
@@ -178,7 +179,7 @@ class JobContractController {
 					base.applicationsCount(), base.applied(), true, false, 0, null, base.applicationFields(),
 					base.status(), base.closedAt(), base.sourceType(), base.sourceUrl(), base.sourcePlatform(),
 					base.applyEmail(), base.description(), base.salaryMin(), base.salaryMax(),
-					base.salaryPeriod(), base.salaryLabel(), base.salaryNotInformed()));
+					base.salaryPeriod(), base.salaryLabel(), base.salaryNotInformed(), null));
 			}
 		}
 		return new PageResponse<>(views, null);
@@ -201,10 +202,9 @@ class JobContractController {
 	 */
 	@PostMapping("/external")
 	ResponseEntity<String> createExternal(@RequestBody CreateExternalJobRequest body,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String hash = idempotency.hash(Map.of(
 			"title", body.title() == null ? "" : body.title(),
 			"company", body.company() == null ? "" : body.company(),
@@ -221,9 +221,8 @@ class JobContractController {
 
 	/** As vagas externas que EU cadastrei (a tela lista e permite excluir). */
 	@GetMapping("/external/mine")
-	List<JobView> myExternalJobs(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	List<JobView> myExternalJobs(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return externalJobSubmission.mine(user.id().value()).stream()
 			.map(job -> toExternalView(job, true))
 			.toList();
@@ -232,9 +231,8 @@ class JobContractController {
 	/** Exclui uma vaga externa CADASTRADA POR MIM (as importadas nao tem dono). */
 	@DeleteMapping("/external/{externalJobId}")
 	ResponseEntity<Void> deleteExternal(@PathVariable String externalJobId,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		externalJobSubmission.remove(user.id().value(), externalJobId);
 		return ResponseEntity.noContent().build();
 	}
@@ -243,9 +241,8 @@ class JobContractController {
 	@GetMapping("/mine")
 	PageResponse<JobView> mine(@RequestParam(required = false) String cursor,
 			@RequestParam(defaultValue = "20") int limit,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		Instant before = cursorCodec.decode(cursor).orElse(null);
 		List<Job> jobs = jobService.listMine(user.id().value(), before, limit);
 		return page(jobs, limit, user.id().value(), PageKind.MINE, false, null);
@@ -255,9 +252,8 @@ class JobContractController {
 	@GetMapping("/applications")
 	PageResponse<JobView> applications(@RequestParam(required = false) String cursor,
 			@RequestParam(defaultValue = "20") int limit,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		Instant before = cursorCodec.decode(cursor).orElse(null);
 		List<Job> jobs = jobService.listApplications(user.id().value(), before, limit);
 		return page(jobs, limit, user.id().value(), PageKind.APPLICATIONS, false, null);
@@ -266,17 +262,20 @@ class JobContractController {
 	@GetMapping("/companies")
 	List<Map<String, Object>> companies(@RequestParam(required = false) String query,
 			@RequestParam(defaultValue = "60") int limit) {
+		// A `origem` separa as duas abas da tela de empresas (Énóis × plataformas externas):
+		// sem ela no corpo, a aba "Plataformas externas" ficava sempre vazia, porque o front
+		// filtra por `c.origem === "externa"` — e um campo ausente nunca é "externa".
 		return companyDirectory.directory(query, Math.min(Math.max(limit, 1), 200)).stream()
 			.map(c -> Map.<String, Object>of(
 				"name", c.name(),
 				"logo", c.logo() == null ? "" : c.logo(),
-				"openJobs", c.openJobs()))
+				"openJobs", c.openJobs(),
+				"origem", c.origem() == null ? CompanyDirectoryReader.ORIGEM_ENOIS : c.origem()))
 			.toList();
 	}
 
 	@GetMapping("/{jobId}")
 	JobView job(@PathVariable String jobId,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
 		// A listagem publica inclui vagas externas persistidas em tabela separada.
 		// Seus identificadores pertencem ao namespace ext_; elas nao aceitam candidatura interna.
@@ -284,7 +283,7 @@ class JobContractController {
 			var external = externalJobRepository.findById(jobId);
 			if (external.isPresent()) return toExternalView(external.get());
 		}
-		String viewer = viewerId(userId, sessionToken);
+		String viewer = viewerId(sessionToken);
 		Job job = jobService.getById(jobId);
 		boolean owner = viewer != null && viewer.equals(job.postedBy());
 		// O dono NUNCA e candidato na propria vaga (o apply bloqueia isso). Se houver uma
@@ -297,9 +296,8 @@ class JobContractController {
 
 	@PutMapping("/{jobId}")
 	ResponseEntity<JobView> update(@PathVariable String jobId, @RequestBody CreateJobRequest body,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		Job job = jobService.update(jobId, body.title(), body.company(), body.logo(), body.location(), body.type(),
 			body.level(), body.salary(), body.currency(), body.salaryMin(), body.salaryMax(), body.salaryPeriod(),
 			body.description(), body.skills(), toFieldInputs(body.applicationFields()), user.id().value());
@@ -320,10 +318,9 @@ class JobContractController {
 	 * motivo so existia no aviso — quem quisesse reler tinha de garimpar a conversa.
 	 */
 	@GetMapping("/applications/mine")
-	List<MyApplicationView> myApplications(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	List<MyApplicationView> myApplications(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestParam(defaultValue = "50") int limit) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return jobService.myApplications(user.id().value(), Math.min(limit, 100)).stream()
 			.map(application -> {
 				Job job = jobService.getById(application.jobId());
@@ -343,10 +340,9 @@ class JobContractController {
 	@PatchMapping("/{jobId}/applications/{applicationId}")
 	ResponseEntity<ApplicationView> updateApplicationStatus(@PathVariable String jobId,
 			@PathVariable String applicationId,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody UpdateApplicationStatusRequest body) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		JobApplicationStatus status = parseStatus(body == null ? null : body.status());
 		JobApplication updated = jobService.updateApplicationStatus(jobId, applicationId, user.id().value(), status,
 			body == null ? null : body.feedback());
@@ -374,9 +370,8 @@ class JobContractController {
 	 */
 	@PostMapping("/{jobId}/close")
 	ResponseEntity<JobView> close(@PathVariable String jobId,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		Job job = jobService.close(jobId, user.id().value());
 		return ResponseEntity.ok(
 			toView(job, user.id().value(), false, false, jobService.applicationsCount(job.id())));
@@ -384,9 +379,8 @@ class JobContractController {
 
 	@DeleteMapping("/{jobId}")
 	ResponseEntity<DeleteResultView> delete(@PathVariable String jobId,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		JobService.DeleteResult result = jobService.delete(jobId, user.id().value());
 		// O aviso volta na resposta: quem excluiu com candidatos sem resposta precisa saber
 		// na hora que a credibilidade é afetada (item 7 do backlog).
@@ -401,12 +395,11 @@ class JobContractController {
 	 * os obrigatorios sao validados aqui, e a candidatura e entregue ao empregador por e-mail e DM.
 	 */
 	@PostMapping("/{jobId}/applications")
-	ResponseEntity<String> apply(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<String> apply(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String jobId,
 			@RequestBody(required = false) ApplyRequest body) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String hash = idempotency.hash(Map.of("jobId", jobId, "body", body == null ? Map.of() : body));
 		return idempotency.execute(user.id(), "POST", "/api/jobs/{jobId}/applications", idempotencyKey, hash,
 			() -> {
@@ -418,11 +411,10 @@ class JobContractController {
 	}
 
 	@PostMapping("/{jobId}/saves")
-	ResponseEntity<String> save(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<String> save(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String jobId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String hash = idempotency.hash(Map.of("jobId", jobId));
 		return idempotency.execute(user.id(), "POST", "/api/jobs/{jobId}/saves", idempotencyKey, hash,
 			() -> {
@@ -432,11 +424,10 @@ class JobContractController {
 	}
 
 	@DeleteMapping("/{jobId}/saves")
-	ResponseEntity<String> removeSave(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<String> removeSave(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String jobId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String hash = idempotency.hash(Map.of("jobId", jobId));
 		return idempotency.execute(user.id(), "DELETE", "/api/jobs/{jobId}/saves", idempotencyKey, hash,
 			() -> {
@@ -460,6 +451,7 @@ class JobContractController {
 		};
 		Set<String> savedIds = authenticated ? jobService.savedJobIds(viewer, ids) : Set.of();
 		Map<String, Integer> counts = authenticated ? jobService.applicationsCountByJobIds(ids) : Map.of();
+		Map<String, String> slugs = companySlugs(jobs);
 		List<JobView> items = jobs.stream()
 			.map(job -> {
 				boolean owner = authenticated && viewer.equals(job.postedBy());
@@ -471,7 +463,7 @@ class JobContractController {
 					job.status().name(), job.closedAt() != null ? job.closedAt().toString() : null,
 					"INTERNAL", null, null, null,
 					job.description(), formatAmount(job.salaryMin()), formatAmount(job.salaryMax()),
-					job.salaryPeriod(), salaryLabel(job), false);
+					job.salaryPeriod(), salaryLabel(job), false, slugs.get(job.companyId()));
 			})
 			.toList();
 		String nextCursor = jobs.size() == limit
@@ -518,7 +510,7 @@ class JobContractController {
 			job.importedAt() != null ? job.importedAt().toString() : null, 0, false, false, owner, 0, null,
 			List.of(), "OPEN", null, "EXTERNAL", job.url(), job.platform(), job.applyEmail(),
 			job.description(), job.salaryMin(), job.salaryMax(), job.salaryPeriod(), externalSalaryLabel(job),
-			job.salaryNotInformed());
+			job.salaryNotInformed(), null);
 	}
 
 	private JobView toView(Job job, String viewer, boolean applied, boolean saved, int applicationsCount) {
@@ -528,7 +520,18 @@ class JobContractController {
 			fieldViews(job), job.status().name(), job.closedAt() != null ? job.closedAt().toString() : null,
 			"INTERNAL", null, null, null,
 			job.description(), formatAmount(job.salaryMin()), formatAmount(job.salaryMax()),
-			job.salaryPeriod(), salaryLabel(job), false);
+			job.salaryPeriod(), salaryLabel(job), false, companySlugs(List.of(job)).get(job.companyId()));
+	}
+
+	/** Slug of the company page each job is linked to, in one read (jobs without a page are left out). */
+	private Map<String, String> companySlugs(List<Job> jobs) {
+		Set<String> ids = jobs.stream().map(Job::companyId).filter(java.util.Objects::nonNull)
+			.collect(java.util.stream.Collectors.toSet());
+		Map<String, String> slugs = new java.util.HashMap<>();
+		if (!ids.isEmpty()) {
+			companyService.byIds(ids).forEach(company -> slugs.put(company.id(), company.slug()));
+		}
+		return slugs;
 	}
 
 	/** Faixa da vaga nova em pt-BR: "R$ 1.500 / mês" ou "de R$ 1.500 até R$ 2.000 / mês". */
@@ -611,7 +614,7 @@ class JobContractController {
 			return null;
 		}
 		return new AuthorView(profile.id(), profile.username(), profile.name(), profile.avatar(), profile.headline(),
-			reputationService.reputationOf(profile.id()), profile.identityVerified());
+			reputationService.reputationOf(profile.id()), profile.identityVerified(), NameStyleView.from(profile));
 	}
 
 	private List<ApplicationFieldView> fieldViews(Job job) {
@@ -621,9 +624,9 @@ class JobContractController {
 	}
 
 	/** Resolve o usuario quando ha sessao; listas publicas seguem funcionando sem login. */
-	private String viewerId(String userId, String sessionToken) {
+	private String viewerId(String sessionToken) {
 		try {
-			return currentUserResolver.resolve(userId, sessionToken).id().value();
+			return currentUserResolver.resolve(sessionToken).id().value();
 		}
 		catch (RuntimeException exception) {
 			return null;
@@ -639,12 +642,14 @@ class JobContractController {
 			// ("R$ 1.500 / mês" ou "de R$ 1.500 até R$ 2.000 / mês"); vagas antigas trazem só
 			// o texto livre em `salary` e nulos aqui.
 			String description, String salaryMin, String salaryMax, String salaryPeriod, String salaryLabel,
-			boolean salaryNotInformed) {
+			boolean salaryNotInformed,
+			// The company page the job is linked to (null when it is not linked).
+			String companySlug) {
 	}
 
 	/** Quem publicou a vaga, com o que sustenta a credibilidade dele. */
 	record AuthorView(String id, String username, String name, String avatar, String headline, int reputation,
-			boolean identityVerified) {
+			boolean identityVerified, NameStyleView nameStyle) {
 	}
 
 	record ApplicationFieldView(String id, String label, String type, boolean required) {
@@ -653,7 +658,9 @@ class JobContractController {
 	record CreateJobRequest(String title, String company, String logo, String location, String type, String level,
 			String salary, String currency, String salaryMin, String salaryMax, String salaryPeriod,
 			String description, List<String> skills, boolean communityAgreement,
-			List<ApplicationFieldRequest> applicationFields) {
+			List<ApplicationFieldRequest> applicationFields,
+			// Optional on create: post for this company page (RECRUITER or above). Ignored on edit.
+			String companyId) {
 	}
 
 	/** Cadastro de vaga EXTERNA: so o que a listagem mostra e o link para onde a candidatura vai. */

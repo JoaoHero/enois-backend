@@ -34,6 +34,7 @@ próprio no [`SECURITY.md`](SECURITY.md) — não vira issue pública.
 
 | Assunto | Documento |
 | --- | --- |
+| Desenvolvimento local e onboarding | [`docs/LOCAL_DEVELOPMENT.md`](docs/LOCAL_DEVELOPMENT.md) |
 | Arquitetura e módulos | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | API publicada | [`docs/API.md`](docs/API.md) |
 | Banco, tabelas e migrações | [`docs/DATABASE.md`](docs/DATABASE.md) |
@@ -41,6 +42,7 @@ próprio no [`SECURITY.md`](SECURITY.md) — não vira issue pública.
 | Segurança, risco e antifraude | [`docs/SECURITY.md`](docs/SECURITY.md) |
 | Identidade e contas | [`docs/IDENTITY.md`](docs/IDENTITY.md) |
 | Jogos indie | [`docs/GAMES.md`](docs/GAMES.md) |
+| Notificações: push por categoria e resumo semanal | [`docs/DIGEST.md`](docs/DIGEST.md) |
 | Portal do desenvolvedor (API pública) | [`docs/DEVELOPERS_PORTAL.md`](docs/DEVELOPERS_PORTAL.md) |
 
 ## Licença
@@ -72,9 +74,12 @@ This starts with the `dev` profile using an **H2 in-memory database**. Swagger U
 
 | Profile | Database    | How to activate                          |
 |---------|-------------|------------------------------------------|
-| `dev`   | H2 (memory) | `SPRING_PROFILES_ACTIVE=dev` (default)   |
+| `dev`   | H2 (memory) | `SPRING_PROFILES_ACTIVE=dev`             |
 | `hml`   | MariaDB     | `SPRING_PROFILES_ACTIVE=hml`             |
 | `prd`   | MySQL       | `SPRING_PROFILES_ACTIVE=prd`             |
+
+There is no default profile: the packaged app refuses to boot without `SPRING_PROFILES_ACTIVE`.
+`./mvnw spring-boot:run` runs as `dev`; pick another with `-Dspring-boot.run.profiles=<profile>`.
 
 ### hml (MariaDB)
 
@@ -88,7 +93,7 @@ docker run -d --name rede-mariadb \
   -p 3306:3306 mariadb:11
 
 # Run with hml profile
-SPRING_PROFILES_ACTIVE=hml ./mvnw spring-boot:run
+./mvnw spring-boot:run -Dspring-boot.run.profiles=hml
 ```
 
 ### prd (MySQL 8+)
@@ -103,7 +108,7 @@ docker run -d --name rede-mysql \
   -p 3307:3306 mysql:8
 
 # Run with prd profile
-SPRING_PROFILES_ACTIVE=prd ./mvnw spring-boot:run
+./mvnw spring-boot:run -Dspring-boot.run.profiles=prd
 ```
 
 ## Building
@@ -254,8 +259,10 @@ Giphy/Tenor, e isso continua valendo); o que precisa de chave é a **busca**.
 | `REDE_GIFS_TENOR_KEY` | chave da **Tenor API v2**: Google Cloud → ativar a "Tenor API" → criar uma chave de API. É o provedor preferido. |
 | `REDE_GIFS_GIPHY_KEY` | chave da **GIPHY API**: developers.giphy.com → *Create an App*. Entra quando só ele está configurado. |
 
-Uma chave basta — com as duas, o Tenor responde primeiro. **A chave do GIPHY já está no default
-do `application.properties`** (e no Secret `REDE_GIFS_GIPHY_KEY` do GitHub) — para ROTAR sem
+Uma chave basta: com as duas, o Tenor responde primeiro, e se o provedor com chave falhar (chave
+revogada, cota, fora do ar) o próximo assume. **Não há chave padrão no código**: a antiga do GIPHY
+foi exposta no repositório e saiu do `application.properties` (E-06); configure
+`REDE_GIFS_GIPHY_KEY` (chave nova) ou `REDE_GIFS_TENOR_KEY` no ambiente. Para trocar sem
 redeploy, aplique o Secret `enois-gifs` no cluster com a chave nova (o manifesto já referencia
 com `optional: true`). **Sem chave nenhuma nada quebra**: o
 provedor da Comunidade responde — busca nos GIFs que a própria rede já compartilhou nos comentários
@@ -275,7 +282,7 @@ e o endpoint exige sessão — anônimo não gasta a cota.
 | ~~0~~ | ~~Trust policy do front~~ — **resolvido em 18/10 pelo raposo**: os dois repositórios deployam automaticamente no push da `main` | — | — |
 | 1 | Certificado (ACM) + DNS de `paginas.enois.ia.br` | ACM us-east-1 + DNS do `ia.br` | player dentro das páginas publicadas |
 | 2 | Rotacionar a senha do banco (a antiga está no histórico do Git) | MariaDB + `git filter-repo` | segurança |
-| 3 | `REDE_GIFS_TENOR_KEY` e `REDE_GIFS_GIPHY_KEY` | secrets do Deployment | busca externa de GIF (sem elas, só os GIFs da comunidade) |
+| ~~3~~ | ~~`REDE_GIFS_TENOR_KEY` e `REDE_GIFS_GIPHY_KEY`~~ — **resolvido em 30/10**: a chave GIPHY existe como secret e o workflow de deploy a injeta nos dois ambientes (busca externa de GIF respondendo em produção, verificada por sonda) | — | — |
 | 4 | `REDE_SECURITY_ENCRYPTION_KEY` (base64 de 32 bytes) | secrets do Deployment | 2FA (a seção fica escondida sem ela) |
 | 5 | `dump_rede.sql` no histórico do Git (dados pessoais reais) | `git filter-repo` + trocar as senhas dos afetados | LGPD |
 | 6 | Sanitizar usuários e posts de teste em produção | precisa de acesso ao banco ou de um endpoint admin | — |
@@ -283,7 +290,7 @@ e o endpoint exige sessão — anônimo não gasta a cota.
 > **Pronto na main, esperando só os itens 0 e 0b (19 commits):** projetos no perfil (stack, repo,
 > status, diário ou HTML), vulgo (aka), aplicações para empresas com marketplace, blogs, selos de
 > post, reações novas (EYES/NOTE/FIRE/CLAP + remoção), o e-mail da denúncia com ações rápidas, a
-> busca de GIF (chave do GIPHY embutida + fallback da comunidade), os controles de tema do front
+> busca de GIF (com a chave do ambiente + fallback da comunidade), os controles de tema do front
 > (a store faltara num commit), transparências, fixes de segurança e o 409 de páginas. No FRONT:
 > a mesma lista + responsividade. Reexecutar os dois workflows depois de 0/0b — sem commit novo.
 
@@ -385,7 +392,7 @@ backend expõe fica público em `https://enois.ia.br/api/...` — inclusive `/ap
 |---|---|---|
 | `SPRING_PROFILES_ACTIVE` | sim | `qa` no cluster |
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | sim | vêm do Secret `socialthing-db-secrets` |
-| `REDE_ADMIN_EMAILS` | sim | allowlist (separada por vírgula) para `/admin/reports/**`. **Vazio = ninguém é admin.** |
+| ~~`REDE_ADMIN_EMAILS`~~ | não | **ignorada**. Admin é a flag `users.is_admin` (V171), nunca username nem e-mail (ver passo 2). |
 | `REDE_FRONTEND_URL` | sim | base do front; o callback OAuth volta em `${REDE_FRONTEND_URL}/auth/callback` |
 | `REDE_BACKEND_URL` | sim | base pública do back; monta os redirect URIs do OAuth |
 | `FRONTEND_URL` | sim | link do e-mail de reset de senha: `${FRONTEND_URL}/auth/reset?token=...` |
@@ -398,16 +405,19 @@ backend expõe fica público em `https://enois.ia.br/api/...` — inclusive `/ap
 | `SPRINGDOC_ENABLED` | não | padrão `false`. `true` liga `/api/openapi.json` + Swagger UI (use só em dev/VPN) |
 | `MANAGEMENT_ENDPOINTS` | não | padrão `health`. Para métricas use `health,prometheus` **e bloqueie `/api/actuator/*` no gateway** |
 | `SUPPORT_EMAIL` | não | e-mail do time que recebe os pedidos de suporte. Sem ele o pedido ainda fica registrado e visível em `/admin/support` |
+| `GITHUB_SUGGESTIONS_REPO_BACKEND` / `GITHUB_SUGGESTIONS_REPO_FRONTEND` / `GITHUB_SUGGESTIONS_REPO_DESIGN_SYSTEM` | p/ sugestões | repositório (`dono/nome`) que recebe a issue pública de cada destino depois da aprovação. Sem ele o destino fica desligado (aprovação responde 503). O token é o mesmo do suporte (painel `/admin/support/github`); ver `docs/MODULES.md` 22.1 |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | p/ push no celular | par de chaves do Web Push (ver passo 7 abaixo). Sem elas o push fica desligado e só as notificações dentro do app funcionam |
-| `REDE_SECURITY_ENCRYPTION_KEY` | p/ 2FA por app | chave de 32 bytes em base64 (`openssl rand -base64 32`) que cifra os segredos TOTP em repouso (AES-GCM). **Sem ela, o 2FA por aplicativo authenticator fica indisponível** (erro explícito, sem guardar segredo em texto puro); o 2FA por código de e-mail continua funcionando |
+| `REDE_SECURITY_ENCRYPTION_KEY` | **sim** (fora do `dev`) | chave de 32 bytes em base64 (`openssl rand -base64 32`) que cifra os segredos TOTP em repouso (AES-GCM) e assina o desafio do cadastro. **Fora do perfil `dev` o pod não sobe sem ela** (o mesmo valor em todas as réplicas) |
 | `VAPID_SUBJECT` | não | contato do emissor VAPID, no formato `mailto:contato@dominio` (padrão `mailto:suporte@enois.ia.br`) |
 
 ### Passo a passo das ações manuais
 
 1. **Criar/atualizar o Secret do banco** (`socialthing-db-secrets`) com as chaves `host`, `port`, `dbname`,
    `username`, `password`. Sem isso o pod não sobe (Flyway falha no boot).
-2. **Definir `REDE_ADMIN_EMAILS`** no Deployment com os e-mails que podem moderar. Enquanto estiver vazio,
-   `/admin/reports/**` responde 403 para todos.
+2. **Admins são a flag `users.is_admin`** (V171 marcou as contas da equipe existentes). Conferir com
+   `select id, username from users where is_admin = true`. Um admin promove/revoga outro pelo painel
+   (`POST /admin/admins`, `POST /admin/admins/{username}/revoke`); o primeiro admin de uma base nova é
+   `update users set is_admin = true where id = '<user id>'`. `REDE_ADMIN_EMAILS` não concede mais nada.
 3. **Configurar o SMTP** (`MAIL_*`) e `FRONTEND_URL` para o reset de senha funcionar de ponta a ponta.
 4. **Configurar o OAuth**: criar as credenciais no Google Cloud e no Apple Developer e cadastrar os
    redirect URIs exatamente como
@@ -527,6 +537,8 @@ delete from flyway_schema_history where version = '<versao que falhou>';    # ou
   (`users.email_verified_at`, `totp_enabled_at`, `email_otp_enabled_at`). Sem nenhum dos dois a reputação é
   **multiplicada por zero** (regra em `ReputationService`, fonte única: vale para o perfil, o ranking e a regra
   de publicar vaga) e as funcionalidades protegidas respondem `403 EMAIL_NOT_VERIFIED` no `CurrentUserResolver`.
+  O mesmo cálculo gera o jardim do perfil (`garden`, um estágio 0..3 por componente e `health` 0..2), que
+  aparece para toda conta, verificada ou não (detalhes em `docs/API.md`, "Profile garden").
 - **Segundo fator (2FA)**: `GET /auth/2fa/status` mostra o estado. Por aplicativo authenticator (TOTP RFC 6238,
   segredo cifrado com `REDE_SECURITY_ENCRYPTION_KEY`): `POST /auth/2fa/totp/setup` devolve o segredo e a URI
   `otpauth://`, `POST /auth/2fa/totp/enable` confirma um código e devolve 8 códigos de recuperação (uso único,

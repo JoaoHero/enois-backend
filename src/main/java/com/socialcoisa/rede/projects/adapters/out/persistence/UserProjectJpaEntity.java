@@ -34,6 +34,9 @@ class UserProjectJpaEntity {
 	@Column(name = "title", nullable = false, length = 120)
 	private String title;
 
+	@Column(length = 500)
+	private String description;
+
 	/** Tecnologias separadas por linha (URL não tem quebra de linha; tecnologia também não). */
 	@Column(name = "stack", nullable = false, columnDefinition = "text")
 	private String stack;
@@ -66,6 +69,7 @@ class UserProjectJpaEntity {
 		entity.userId = project.userId();
 		entity.position = project.position();
 		entity.title = project.title();
+		entity.description = project.description();
 		entity.stack = String.join("\n", project.stack());
 		entity.repoUrl = project.repoUrl();
 		entity.status = project.status();
@@ -77,8 +81,9 @@ class UserProjectJpaEntity {
 	}
 
 	UserProject toDomain() {
-		return new UserProject(id, userId, position, title, stack.isBlank() ? List.of() : List.of(stack.split("\n")),
-			repoUrl, status, parseDiary(diary), html, createdAt, updatedAt);
+		return new UserProject(id, userId, position, title, description,
+			stack.isBlank() ? List.of() : List.of(stack.split("\n")), repoUrl, status, parseDiary(diary), html,
+			createdAt, updatedAt);
 	}
 
 	private static String serializeDiary(List<ProjectDiaryEntry> diary) {

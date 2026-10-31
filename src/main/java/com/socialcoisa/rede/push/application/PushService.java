@@ -19,6 +19,16 @@ import com.socialcoisa.rede.shared.web.ApiException;
 @Service
 public class PushService {
 
+	/**
+	 * O teto do endpoint de push: e o tamanho da coluna (`push_subscriptions.endpoint varchar(700)`).
+	 * O numero nao e arbitrario — 700 caracteres cabem no limite de chave do InnoDB (3072 bytes em
+	 * utf8mb4) sem precisar de indice com prefixo, e o H2 (usado nos testes) nao aceita o prefixo.
+	 * A entidade declarava 1000, ou seja, prometia mais do que a coluna guarda: passar do limite
+	 * quebrava no INSERT com "Data too long", que o tradutor de excecoes devolve como 409
+	 * "Operacao conflita com o estado atual dos dados" — sem dizer que era o endpoint longo.
+	 */
+	static final int MAX_ENDPOINT_LENGTH = 700;
+
 	private final PushSubscriptionRepository repository;
 	private final PushSender sender;
 	private final Clock clock;
@@ -45,6 +55,10 @@ public class PushService {
 		}
 		if (!StringUtils.hasText(p256dh) || !StringUtils.hasText(auth)) {
 			throw new ApiException(400, "INVALID_PUSH_SUBSCRIPTION", "Chaves do dispositivo obrigatorias.");
+		}
+		if (endpoint.length() > MAX_ENDPOINT_LENGTH) {
+			throw new ApiException(400, "INVALID_PUSH_SUBSCRIPTION",
+				"Endpoint de push longo demais (maximo " + MAX_ENDPOINT_LENGTH + " caracteres).");
 		}
 		String trimmedEndpoint = endpoint.trim();
 		PushSubscription subscription = repository.findByEndpoint(trimmedEndpoint)

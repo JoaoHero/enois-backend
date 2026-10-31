@@ -5,7 +5,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-import org.springframework.web.util.HtmlUtils;
 
 import com.socialcoisa.rede.identity.application.EmailService;
 import com.socialcoisa.rede.jobs.application.port.out.JobApplicationStatusNotifier;
@@ -13,10 +12,12 @@ import com.socialcoisa.rede.jobs.domain.Job;
 import com.socialcoisa.rede.jobs.domain.JobApplication;
 import com.socialcoisa.rede.jobs.domain.JobApplicationStatus;
 import com.socialcoisa.rede.messaging.application.MessagingService;
+import com.socialcoisa.rede.notifications.application.NotificationService;
 import com.socialcoisa.rede.profile.application.port.out.UserProfileRepository;
 
 /**
- * Notifica o candidato sobre a mudanca de estado: mensagem direta e e-mail.
+ * Notifica o candidato sobre a mudanca de estado: notificacao in-app (que tambem vira push, se a
+ * pessoa nao desligou vagas), mensagem direta e e-mail.
  *
  * Falha de entrega nao derruba a mudanca de estado (ela ja foi persistida antes daqui): o erro e
  * logado e o candidato continua vendo o estado atualizado na lista dele.
@@ -31,12 +32,14 @@ class JobApplicationStatusNotifierAdapter implements JobApplicationStatusNotifie
 	private final UserProfileRepository userProfileRepository;
 	private final MessagingService messagingService;
 	private final EmailService emailService;
+	private final NotificationService notificationService;
 
 	JobApplicationStatusNotifierAdapter(UserProfileRepository userProfileRepository, MessagingService messagingService,
-			EmailService emailService) {
+			EmailService emailService, NotificationService notificationService) {
 		this.userProfileRepository = userProfileRepository;
 		this.messagingService = messagingService;
 		this.emailService = emailService;
+		this.notificationService = notificationService;
 	}
 
 	@Override
@@ -44,9 +47,13 @@ class JobApplicationStatusNotifierAdapter implements JobApplicationStatusNotifie
 	public void notifyStatusChange(Job job, JobApplication application, JobApplicationStatus status) {
 		String text = messageFor(job, application, status);
 
+		// Sem o retorno da empresa: o corpo pode aparecer na tela bloqueada (push); o retorno segue na mensagem direta, no e-mail e na lista de candidaturas.
+		notificationService.create(application.userId(), "JOB_APPLICATION_STATUS", job.postedBy(),
+			"Atualização da sua candidatura", statusLine(job, status), "/vagas/" + job.id(), "Ver vaga");
+
 		try {
-			String conversationId = messagingService.directConversationBetween(application.userId(), job.postedBy());
-			// Sai do empregador: e ele quem decidiu, e a conversa e a mesma criada na candidatura.
+			String conversationId = messagingService.directConversationBetween(application.userId(), job.postedBy(), "JOB");
+			// Sai do empregador: e ele quem decidiu, na mesma conversa de candidatura (caixa profissional).
 			messagingService.sendMessage(conversationId, job.postedBy(), text);
 		}
 		catch (RuntimeException exception) {
@@ -73,6 +80,16 @@ class JobApplicationStatusNotifierAdapter implements JobApplicationStatusNotifie
 			: base + "\n\nRetorno da empresa: " + application.feedback();
 	}
 
+	private String statusLine(Job job, JobApplicationStatus status) {
+		String title = subjectText(job.title());
+		return switch (status) {
+			case IN_REVIEW -> "Sua candidatura para \"" + title + "\" está em análise.";
+			case ADVANCED -> "Você avançou no processo de \"" + title + "\".";
+			case NOT_SELECTED -> "A empresa respondeu sobre \"" + title + "\".";
+			case APPLIED -> "Sua candidatura para \"" + title + "\" foi recebida.";
+		};
+	}
+
 	private String subjectFor(Job job, JobApplicationStatus status) {
 		String title = subjectText(job.title());
 		return switch (status) {
@@ -92,9 +109,9 @@ class JobApplicationStatusNotifierAdapter implements JobApplicationStatusNotifie
 		StringBuilder body = new StringBuilder();
 		// Titulo e empresa vem do anuncio do empregador: entram escapados, senao um titulo com
 		// <a href> vira link de phishing dentro do e-mail que chega ao candidato.
-		body.append("<p><strong>").append(HtmlUtils.htmlEscape(job.title())).append("</strong> — ")
-			.append(HtmlUtils.htmlEscape(job.company())).append("</p>");
-		body.append("<p>").append(HtmlUtils.htmlEscape(text).replace("\n", "<br/>")).append("</p>");
+		body.append("<p><strong>").append(EmailService.escapeHtml(job.title())).append("</strong> — ")
+			.append(EmailService.escapeHtml(job.company())).append("</p>");
+		body.append("<p>").append(EmailService.escapeHtml(text).replace("\n", "<br/>")).append("</p>");
 		body.append("<p style=\"color:#6b7280;font-size:12px\">").append("Voce recebeu este aviso porque se ")
 			.append("candidatou a esta vaga no Enois.</p>");
 		return body.toString();

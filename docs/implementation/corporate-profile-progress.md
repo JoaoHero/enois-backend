@@ -15,7 +15,14 @@
 - [x] 2026-10-20 — Auditoria do estado (plan §Auditoria): perfil único, posts com PostType,
   feeds mapeados, jobs/search/notifications com outbox, migrações até V106 (+V102/104/105 de
   outra sessão). Documentos criados: plan, progress (este), decisions, validation.
-- [ ] Confirmar com a dona as decisões abertas do `decisions.md` (username com ponto, rotas).
+- [x] 2026-10-25 — Decisões do `decisions.md` conferidas com o código: **username com ponto e
+  rota pública já foram resolvidos na Fase 10** (o próprio `decisions.md` marca a pergunta 1 como
+  resolvida: a rota pública é `/profissional/{username}` e o formato do @ profissional foi
+  decidido). Conferido no código: a rota `profissional_.$username.tsx` existe no front, e o backend
+  atende `GET /corporate/{username}` e `GET /corporate/{profileUsername}/posts` (o feed
+  corporativo). **Fica só a confirmação de gosto** da visibilidade do feed corporativo (público
+  para todos ou só para seguidores) — o plano já tem o padrão definido (público) e a pergunta não
+  bloqueia nada.
 
 ## Fase 1 — Modelo de domínio
 

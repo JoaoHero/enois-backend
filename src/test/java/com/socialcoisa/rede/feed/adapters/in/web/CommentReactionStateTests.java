@@ -56,7 +56,10 @@ class CommentReactionStateTests {
 		// Recarregar a listagem (como o front faz) precisa trazer a reacao do leitor.
 		mockMvc.perform(get("/feed/posts/" + postId + "/comments").header("X-Session-Token", reactor.token()))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.items[0].currentUserReaction").value("LIKE"));
+			.andExpect(jsonPath("$.items[0].currentUserReaction").value("LIKE"))
+			// As pilulas do comentario (igual ao post) precisam da contagem por tipo no reload.
+			.andExpect(jsonPath("$.items[0].reactionSummary.LIKE").value(1))
+			.andExpect(jsonPath("$.items[0].reactionCount").value(1));
 
 		// Para outro usuario, nao ha reacao propria.
 		mockMvc.perform(get("/feed/posts/" + postId + "/comments").header("X-Session-Token", author.token()))

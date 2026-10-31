@@ -62,14 +62,13 @@ class GameController {
 			@RequestParam(required = false) String tag, @RequestParam(required = false) String stage,
 			@RequestParam(required = false) String distribution, @RequestParam(required = false) String order,
 			@RequestParam(required = false) Integer limit, @RequestParam(required = false) String cursor,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
 		var criteria = GameSearchCriteria.of(query, genre, tag, GameSearchCriteria.stageOrNull(stage),
 			GameSearchCriteria.distributionOrNull(distribution), order);
 		var page = catalog.search(criteria, limit, cursor);
 		// Com sessão o catálogo marca o que é MEU (`owned`): é o que faz o card na loja oferecer
 		// "Editar" para quem publicou — sem isso, o dono só editava se achasse o painel.
-		String viewerId = viewerIdOrNull(userId, sessionToken);
+		String viewerId = viewerIdOrNull(sessionToken);
 		return new GamePageView(page.items().stream().map(game -> view(game, viewerId)).toList(),
 			page.nextCursor());
 	}
@@ -93,17 +92,15 @@ class GameController {
 
 	@GetMapping("/games/{username}")
 	List<GameView> byUser(@PathVariable String username,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		return withUsernames(games.publishedByUser(username), viewerIdOrNull(userId, sessionToken));
+		return withUsernames(games.publishedByUser(username), viewerIdOrNull(sessionToken));
 	}
 
 	@GetMapping("/games/{username}/{gameSlug}")
-	GameView bySlug(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	GameView bySlug(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String username, @PathVariable String gameSlug) {
 		// Com sessão, o dono abre o próprio jogo em qualquer estado (rascunho, recusado, suspenso).
-		String viewerId = viewerIdOrNull(userId, sessionToken);
+		String viewerId = viewerIdOrNull(sessionToken);
 		return viewWithFavorites(games.byUserAndSlug(username, gameSlug, viewerId), viewerId);
 	}
 
@@ -124,9 +121,9 @@ class GameController {
 		return GameView.of(game, username, favorites, favorited, viewerId);
 	}
 
-	private String viewerIdOrNull(String userId, String sessionToken) {
+	private String viewerIdOrNull(String sessionToken) {
 		try {
-			return currentUserResolver.resolve(userId, sessionToken).id().value();
+			return currentUserResolver.resolve(sessionToken).id().value();
 		}
 		catch (Exception ignored) {
 			return null;
@@ -146,18 +143,16 @@ class GameController {
 	// --- criador ---
 
 	@GetMapping("/me/games")
-	List<GameView> myGames(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	List<GameView> myGames(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		// `owned = true` em todos: é a lista dos MEUS jogos (o front usa isso para o "Editar").
 		return withUsernames(games.ownedBy(user.id().value()), user.id().value());
 	}
 
 	@PostMapping("/games")
-	Map<String, Object> submit(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> submit(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody SubmitGameRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		Game created = games.submit(user.id().value(), request.slug(), request.title(), request.description(),
 			request.cover(), request.url(), request.tags());
 		return Map.of("id", created.id(), "slug", created.slug(), "status", created.status().name());
@@ -168,10 +163,9 @@ class GameController {
 	 * A sessão do Énóis fica AQUI — o jogo recebe só o token. Sessão obrigatória.
 	 */
 	@PostMapping("/games/{gameId}/identity")
-	Map<String, Object> identity(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> identity(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		var issued = identities.mint(user.id().value(), gameId);
 		return Map.of("token", issued.token(), "expiresAt", issued.expiresAt().toString(),
 			"playerRef", identities.playerRef(user.id().value(), gameId));
@@ -189,10 +183,9 @@ class GameController {
 	 * plataforma e ESTE endpoint (sessão do jogador) debita. O jogo nunca autentica.
 	 */
 	@PostMapping("/games/{gameId}/despesas")
-	Map<String, Object> spend(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> spend(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId, @RequestBody SpendRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		games.spendInGame(user.id().value(), gameId, request.amount(), request.motivo(), request.requestId());
 		return Map.of("status", "DEBITED", "requestId", request.requestId());
 	}
@@ -212,10 +205,9 @@ class GameController {
 
 	/** Cria uma coleção curada (v1: administração). */
 	@PostMapping("/games/colecoes")
-	Map<String, Object> createCollection(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> createCollection(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody CreateCollectionRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		adminGuard.requireAdmin(user);
 		var created = games.createCollection(user.id().value(), request.title(), request.description(),
 			request.gameIds());
@@ -223,10 +215,9 @@ class GameController {
 	}
 
 	@PostMapping("/games/colecoes/{collectionId}/esconder")
-	Map<String, Object> hideCollection(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> hideCollection(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String collectionId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		adminGuard.requireAdmin(user);
 		var hidden = games.hideCollection(collectionId, user.id().value());
 		return Map.of("id", hidden.id(), "status", hidden.status().name());
@@ -241,10 +232,9 @@ class GameController {
 	 * para o iframe. Teto de 12/dia por pessoa em cada jogo.
 	 */
 	@PostMapping("/games/{gameId}/compartilhar")
-	Map<String, Object> compartilhar(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> compartilhar(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId, @RequestBody ShareRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		var post = games.compartilhar(user.id().value(), gameId, request.texto(), request.mediaIds());
 		return Map.of("postId", post.id(), "status", "SHARED");
 	}
@@ -254,19 +244,17 @@ class GameController {
 
 	/** Destaque pago (G2): o criador impulsiona o próprio jogo por 7 dias (5 faíscas). */
 	@PostMapping("/games/{gameId}/boost")
-	Map<String, Object> boost(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> boost(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		var boosted = games.boost(gameId, user.id().value());
 		return Map.of("id", boosted.id(), "boosted", boosted.boosted(java.time.Instant.now()));
 	}
 
 	@PostMapping("/games/{gameId}/resubmit")
-	Map<String, Object> resubmit(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> resubmit(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		Game game = games.resubmit(gameId, user.id().value());
 		return Map.of("id", game.id(), "status", game.status().name());
 	}
@@ -274,30 +262,27 @@ class GameController {
 	// --- moderação ---
 
 	@GetMapping("/admin/games")
-	List<GameView> pending(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	List<GameView> pending(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestParam(defaultValue = "30") int limit) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		adminGuard.requireAdmin(user);
 		// Fila de revisão: quem decide não é o dono, então `owned` fica de fora de propósito.
 		return withUsernames(games.pending(limit), null);
 	}
 
 	@PostMapping("/admin/games/{gameId}/approve")
-	Map<String, Object> approve(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> approve(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId, @RequestBody(required = false) ReviewRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		adminGuard.requireAdmin(user);
 		Game approved = games.approve(gameId, user.id().value(), request == null ? null : request.note());
 		return Map.of("id", approved.id(), "status", approved.status().name());
 	}
 
 	@PostMapping("/admin/games/{gameId}/reject")
-	Map<String, Object> reject(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> reject(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId, @RequestBody(required = false) ReviewRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		adminGuard.requireAdmin(user);
 		Game rejected = games.reject(gameId, user.id().value(), request == null ? null : request.note());
 		return Map.of("id", rejected.id(), "status", rejected.status().name());

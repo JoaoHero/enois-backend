@@ -35,7 +35,9 @@ class V1ApiController {
 		String context = request.getContextPath() == null ? "" : request.getContextPath();
 		return new V1Index(V1AliasFilter.VERSION, context + V1AliasFilter.PREFIX,
 			"Alias versionado: o caminho e a resposta sao os mesmos do caminho sem versao. "
-				+ "O formato do erro e {code, message, timestamp}.",
+				+ "O formato do erro e {code, message, timestamp}. "
+				+ "Este indice e o contrato legivel por maquina: a API nao publica documento OpenAPI "
+				+ "(nao existe /openapi.json); a documentacao legivel esta na pagina /developers do app.",
 			endpoints());
 	}
 

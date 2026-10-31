@@ -20,6 +20,9 @@ public interface AuthSessionRepository {
 
 	void revokeAllByUser(String userId, Instant revokedAt);
 
+	/** Revokes every session of the user except the one presenting {@code keepToken}. */
+	void revokeOthersByUser(String userId, String keepToken, Instant revokedAt);
+
 	/** IPs recentes de onde o usuario entrou (V115), mais recentes primeiro. Nulos filtrados fora. */
 	List<String> findRecentIpsByUser(String userId, int limit);
 }

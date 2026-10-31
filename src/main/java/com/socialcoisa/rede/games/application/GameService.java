@@ -15,6 +15,7 @@ import com.socialcoisa.rede.games.domain.Game;
 import com.socialcoisa.rede.games.domain.GameEventKind;
 import com.socialcoisa.rede.games.domain.GameStatus;
 import com.socialcoisa.rede.shared.web.ApiException;
+import com.socialcoisa.rede.shared.web.TextFieldLimit;
 
 /**
  * Agregador de jogos: o Énóis NÃO hospeda — o criador envia o LINK (o jogo fica publicado
@@ -70,6 +71,13 @@ public class GameService {
 	@Transactional
 	public Game submit(String userId, String slugBase, String title, String description, String cover, String url,
 			String tags) {
+		// Os tetos sao os das COLUNAS (`games.title varchar(200)`, `description varchar(4000)`,
+		// `tags varchar(500)`): sem a checagem o banco recusava com "Data too long" e a pessoa
+		// levava 409 "conflita com o estado atual dos dados".
+		TextFieldLimit.check("GAME_FIELD_TOO_LONG", "titulo", title, 200);
+		TextFieldLimit.check("GAME_FIELD_TOO_LONG", "descricao", description, 4000);
+		TextFieldLimit.check("GAME_FIELD_TOO_LONG", "tags", tags, 500);
+		TextFieldLimit.check("GAME_FIELD_TOO_LONG", "link", url, 500);
 		if (!StringUtils.hasText(title) || title.trim().length() < 3) {
 			throw new ApiException(400, "INVALID_TITLE", "Título do jogo precisa de pelo menos 3 caracteres.");
 		}
@@ -113,6 +121,13 @@ public class GameService {
 	public Game edit(String gameId, String userId, String title, String description, String cover, String url,
 			String tags, com.socialcoisa.rede.games.domain.GameDetails details, String slug) {
 		Game game = owned(gameId, userId);
+		// Os tetos sao os das COLUNAS (`games.title varchar(200)`, `description varchar(4000)`,
+		// `tags varchar(500)`): sem a checagem o banco recusava com "Data too long" e a pessoa
+		// levava 409 "conflita com o estado atual dos dados".
+		TextFieldLimit.check("GAME_FIELD_TOO_LONG", "titulo", title, 200);
+		TextFieldLimit.check("GAME_FIELD_TOO_LONG", "descricao", description, 4000);
+		TextFieldLimit.check("GAME_FIELD_TOO_LONG", "tags", tags, 500);
+		TextFieldLimit.check("GAME_FIELD_TOO_LONG", "link", url, 500);
 		if (!StringUtils.hasText(title) || title.trim().length() < 3) {
 			throw new ApiException(400, "INVALID_TITLE", "Título do jogo precisa de pelo menos 3 caracteres.");
 		}
@@ -161,6 +176,7 @@ public class GameService {
 	/** Moderação tira o jogo do ar. O registro e o histórico continuam (suspender não é apagar). */
 	@Transactional
 	public Game suspend(String gameId, String reviewerId, String note) {
+		TextFieldLimit.check("GAME_FIELD_TOO_LONG", "nota", note, 500);
 		Game game = game(gameId);
 		if (game.status() == GameStatus.SUSPENDED) {
 			throw new ApiException(409, "ALREADY_SUSPENDED", "Este jogo já está suspenso.");
@@ -276,6 +292,9 @@ public class GameService {
 
 	@Transactional
 	public Game approve(String gameId, String reviewerId, String note) {
+		// O teto e o da COLUNA (`games.review_note varchar(500)`): sem a checagem o banco recusava
+		// com "Data too long" e a pessoa levava 409 "conflita com o estado atual dos dados".
+		TextFieldLimit.check("GAME_FIELD_TOO_LONG", "nota", note, 500);
 		Game game = game(gameId);
 		if (game.status() != GameStatus.SUBMITTED) {
 			throw new ApiException(409, "NOT_SUBMITTED", "Este jogo não está na fila de revisão.");
@@ -401,6 +420,10 @@ public class GameService {
 	@Transactional
 	public com.socialcoisa.rede.games.domain.GameCollection createCollection(String curatorId, String title,
 			String description, List<String> gameIds) {
+		// Os tetos sao os das COLUNAS (`game_collections.title varchar(160)`, `description
+		// varchar(500)`).
+		TextFieldLimit.check("GAME_FIELD_TOO_LONG", "titulo", title, 160);
+		TextFieldLimit.check("GAME_FIELD_TOO_LONG", "descricao", description, 500);
 		return colecoes.save(
 			com.socialcoisa.rede.games.domain.GameCollection.create(curatorId, title, description, gameIds,
 				java.time.Instant.now(clock)));

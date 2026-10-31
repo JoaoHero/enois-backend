@@ -76,16 +76,17 @@ class GamesPlatformTests {
 		publish(creator, admin, "Cave Story BR", "https://8.8.8.8/cave", "Plataforma de caverna",
 			"PLATAFORMA,catalogo1", "DEMO", "PAID");
 
-		// Busca textual acha por título, descrição e tag.
-		assertThat(catalogIds("?query=neon")).containsExactly("neon-drift");
-		assertThat(catalogIds("?query=padaria")).containsExactly("padaria-do-ze");
-		assertThat(catalogIds("?query=arcade")).containsExactly("neon-drift");
+		// Busca textual acha por título, descrição e tag. Every lookup is scoped to `catalogo1`: other
+		// test classes share this database and publish games too (e.g. another ARCADE game).
+		assertThat(catalogIds("?tag=catalogo1&query=neon")).containsExactly("neon-drift");
+		assertThat(catalogIds("?tag=catalogo1&query=padaria")).containsExactly("padaria-do-ze");
+		assertThat(catalogIds("?tag=catalogo1&query=arcade")).containsExactly("neon-drift");
 
 		// Filtros.
-		assertThat(catalogIds("?genre=PLATAFORMA")).containsExactly("cave-story-br");
-		assertThat(catalogIds("?stage=EARLY_ACCESS")).containsExactly("padaria-do-ze");
-		assertThat(catalogIds("?distribution=PAID")).containsExactly("cave-story-br");
-		assertThat(catalogIds("?tag=retro")).containsExactly("neon-drift");
+		assertThat(catalogIds("?tag=catalogo1&genre=PLATAFORMA")).containsExactly("cave-story-br");
+		assertThat(catalogIds("?tag=catalogo1&stage=EARLY_ACCESS")).containsExactly("padaria-do-ze");
+		assertThat(catalogIds("?tag=catalogo1&distribution=PAID")).containsExactly("cave-story-br");
+		assertThat(catalogIds("?tag=retro")).contains("neon-drift").doesNotContain("padaria-do-ze", "cave-story-br");
 
 		// Ordem: por título é alfabética e estável (só os jogos deste teste).
 		assertThat(catalogIds("?tag=catalogo1&order=title"))
@@ -183,7 +184,7 @@ class GamesPlatformTests {
 		var admin = auth.authenticate("gplat_admin");
 
 		String gameId = publish(creator, admin, "Café com Código", "https://8.8.8.8/cafe", "Jogo sobre café",
-			"SIMULACAO", "RELEASED", "FREE");
+			"SIMULACAO,devpage1", "RELEASED", "FREE");
 
 		// Página do criador: identidade do Énóis + o que ele preencheu.
 		mockMvc.perform(put("/games/profile")
@@ -246,13 +247,10 @@ class GamesPlatformTests {
 			.andExpect(jsonPath("$.plays").value(1))
 			.andExpect(jsonPath("$.players").value(1))
 			.andExpect(jsonPath("$.updates").value(1));
-		// O mais jogado lidera a ordem por plays — a menos que um destaque pago (G2) esteja
-		// ativo: o impulso sobe de propósito acima do mais jogado.
-		var primeiro = firstCatalogItem("?order=plays");
-		if (!primeiro.get("slug").asText().equals("cafe-com-codigo")) {
-			org.assertj.core.api.Assertions.assertThat(primeiro.get("boosted").asBoolean())
-				.as("só um destaque pago pode ultrapassar o mais jogado").isTrue();
-		}
+		// O mais jogado lidera a ordem por plays. Scoped to this test's own tag: games from other test
+		// classes (same database) may have more plays or an active paid boost.
+		var primeiro = firstCatalogItem("?tag=devpage1&order=plays");
+		org.assertj.core.api.Assertions.assertThat(primeiro.get("slug").asText()).isEqualTo("cafe-com-codigo");
 	}
 
 	private tools.jackson.databind.JsonNode firstCatalogItem(String query) throws Exception {

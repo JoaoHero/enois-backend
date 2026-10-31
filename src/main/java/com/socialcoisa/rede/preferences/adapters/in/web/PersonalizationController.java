@@ -46,18 +46,16 @@ class PersonalizationController {
 	}
 
 	@GetMapping("/me/preferences")
-	PersonalizationResponse me(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	PersonalizationResponse me(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		var personalization = service.of(user.id().value());
 		return view(personalization);
 	}
 
 	@PutMapping("/me/preferences")
-	PersonalizationResponse update(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	PersonalizationResponse update(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody UpdateRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		var updated = service.update(user.id().value(),
 			request == null ? null : request.likedTopics(),
 			request == null ? null : request.blockedTopics(),
@@ -74,10 +72,9 @@ class PersonalizationController {
 	 */
 	@org.springframework.web.bind.annotation.PostMapping("/me/preferences/night-rest/dismissed")
 	PersonalizationResponse dismissNightRest(
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody DismissNightRestRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return view(service.dismissNightRest(user.id().value(), request == null ? null : request.night()));
 	}
 

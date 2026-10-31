@@ -37,20 +37,18 @@ class PushController {
 	}
 
 	@PostMapping("/push/subscriptions")
-	ResponseEntity<SubscriptionView> subscribe(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<SubscriptionView> subscribe(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody SubscriptionRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		PushSubscription subscription = pushService.register(user.id().value(), request.endpoint(),
 			request.keys() != null ? request.keys().p256dh() : null, request.keys() != null ? request.keys().auth() : null);
 		return ResponseEntity.status(HttpStatus.CREATED).body(new SubscriptionView(subscription.id()));
 	}
 
 	@DeleteMapping("/push/subscriptions")
-	ResponseEntity<Void> unsubscribe(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<Void> unsubscribe(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestParam(name = "endpoint") String endpoint) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		pushService.unregister(user.id().value(), endpoint);
 		return ResponseEntity.noContent().build();
 	}

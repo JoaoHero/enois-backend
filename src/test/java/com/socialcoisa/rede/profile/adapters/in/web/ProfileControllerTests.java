@@ -77,7 +77,7 @@ class ProfileControllerTests {
 			.andExpect(status().isOk())
 			.andReturn();
 
-		sessionToken = objectMapper.readTree(login.getResponse().getContentAsString()).get("token").asText();
+		sessionToken = com.socialcoisa.rede.shared.web.TestAuthHelper.sessionToken(login);
 	}
 
 	@Test

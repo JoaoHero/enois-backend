@@ -68,6 +68,19 @@ class SessionTokenHashingTests {
 	}
 
 	@Test
+	void aHashCopiedFromTheTableDoesNotAuthenticate() {
+		Instant now = Instant.now();
+		sessions.save("raw-access-2", "raw-refresh-2", USER, now, now.plusSeconds(3600),
+			now.plusSeconds(86_400), "127.0.0.1");
+		Map<String, Object> row = jdbc.queryForMap(
+			"select token, refresh_token from auth_sessions where user_id = ?", USER);
+
+		assertThat(sessions.findActiveUserId((String) row.get("token"), now.plusSeconds(10))).isEmpty();
+		assertThat(sessions.findActiveUserIdByRefreshToken((String) row.get("refresh_token"), now.plusSeconds(10)))
+			.isEmpty();
+	}
+
+	@Test
 	void migratesLegacyRawSessionWithoutInvalidatingTheClient() {
 		Instant now = Instant.now();
 		jdbc.update("""

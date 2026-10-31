@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -134,6 +135,31 @@ class CommunityCosmeticsFlowTests {
 			.andExpect(jsonPath("$.code").value("INVALID_NAME_FONT"));
 	}
 
+	@Test
+	void newNameThemesAndFontsAreAccepted() throws Exception {
+		var owner = auth("community_name_style_new");
+
+		for (String theme : List.of("RETRO", "OCEAN", "SUNSET", "MATRIX", "GOLD", "ICE")) {
+			mockMvc.perform(put("/cosmetics/profile/name-style")
+				.header("X-Session-Token", owner.token())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of(
+					"theme", theme, "font", "CURSIVE", "color", "#0ea5e9"))))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.theme").value(theme));
+		}
+
+		for (String font : List.of("CURSIVE", "CONDENSED", "COMIC", "SLAB")) {
+			mockMvc.perform(put("/cosmetics/profile/name-style")
+				.header("X-Session-Token", owner.token())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of(
+					"theme", "OCEAN", "font", font, "color", "#0ea5e9"))))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.font").value(font));
+		}
+	}
+
 	private String createDraft(TestAuthHelper.AuthSession author, String key, String name, String kind,
 		String manifest) throws Exception {
 		MvcResult result = mockMvc.perform(post("/cosmetics/drafts")
@@ -170,8 +196,7 @@ class CommunityCosmeticsFlowTests {
 			.header("Idempotency-Key", "cosmetics-verify-" + name).contentType(MediaType.APPLICATION_JSON)
 			.content(objectMapper.writeValueAsString(Map.of("token", verificationToken))))
 			.andExpect(status().isOk()).andReturn();
-		var session = objectMapper.readTree(verified.getResponse().getContentAsString());
-		return new TestAuthHelper.AuthSession(session.get("token").asText(), session.get("refreshToken").asText(),
+		return new TestAuthHelper.AuthSession(TestAuthHelper.sessionToken(verified), TestAuthHelper.refreshToken(verified),
 			TestDatabase.userIdByEmail(email).orElseThrow());
 	}
 }

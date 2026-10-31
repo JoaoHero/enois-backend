@@ -329,7 +329,7 @@ public class ModeratorService {
 		String reference = "admin:" + adminId;
 		Optional<UserSanction> active = sanctions.findActiveByUser(target.id());
 		if (type != SanctionType.RESTRICTION) {
-			if (active.isPresent() && active.get().isBan()) {
+			if (active.isPresent() && active.get().isBlocked()) {
 				return new SanctionResult(target.id(), target.username(), type.name(), "ALREADY_BANNED");
 			}
 			// Reaproveita a restrição ativa (mesmo id) em vez de criar uma segunda sanção ACTIVE.
@@ -338,12 +338,12 @@ public class ModeratorService {
 				.orElseGet(() -> type == SanctionType.PERMABAN
 					? UserSanction.permaBan("sanc_" + randomId(), target.id(), reference, cleanReason,
 						Instant.now(clock))
-					: UserSanction.create("sanc_" + randomId(), target.id(), reference, cleanReason,
+					: UserSanction.suspended("sanc_" + randomId(), target.id(), reference, cleanReason,
 						Instant.now(clock)));
 			sanctionService.banAuthor(sanction, target.id(), adminId, sessions);
 		}
 		else {
-			if (active.isPresent() && active.get().isBan()) {
+			if (active.isPresent() && active.get().isBlocked()) {
 				return new SanctionResult(target.id(), target.username(), type.name(), "ALREADY_BANNED");
 			}
 			sanctionService.restrictUser(target.id(), reference, cleanReason);

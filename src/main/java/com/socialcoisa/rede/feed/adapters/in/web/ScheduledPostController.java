@@ -42,11 +42,10 @@ class ScheduledPostController {
 	}
 
 	@PostMapping("/feed/scheduled")
-	ResponseEntity<String> schedule(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<String> schedule(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@RequestBody ScheduleRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String hash = idempotency.hash(request);
 		return idempotency.execute(user.id(), "POST", "/api/feed/scheduled", idempotencyKey, hash,
 			() -> new CommandResponse(201, view(service.schedule(user.id().value(),
@@ -57,17 +56,15 @@ class ScheduledPostController {
 	}
 
 	@GetMapping("/feed/scheduled")
-	List<View> list(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	List<View> list(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return service.list(user.id().value()).stream().map(ScheduledPostController::view).toList();
 	}
 
 	@DeleteMapping("/feed/scheduled/{id}")
-	Map<String, String> cancel(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, String> cancel(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String id) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		service.cancel(user.id().value(), id);
 		return Map.of("id", id, "status", "CANCELLED");
 	}

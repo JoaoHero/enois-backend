@@ -126,7 +126,7 @@ class FirstPasswordTests {
 				.content(loginBody("diz-se-tem-senha", "NovaSenha123")))
 			.andExpect(status().isOk())
 			.andReturn();
-		String token = objectMapper.readTree(login.getResponse().getContentAsString()).get("token").asText();
+		String token = com.socialcoisa.rede.shared.web.TestAuthHelper.sessionToken(login);
 
 		MvcResult me = mockMvc.perform(get("/auth/me").header("X-Session-Token", token))
 			.andExpect(status().isOk())

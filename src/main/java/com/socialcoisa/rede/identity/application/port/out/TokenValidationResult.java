@@ -12,16 +12,22 @@ package com.socialcoisa.rede.identity.application.port.out;
  * @param accessToken    token de acesso do provedor, quando o fluxo devolve um (LinkedIn usa para
  *                       publicar com w_member_social); nunca viaja para o cliente
  * @param accessTokenExpiresAt validade do accessToken (null quando nao ha token)
+ * @param scope          escopos concedidos pelo provedor (GitHub devolve na troca do token)
  */
 public record TokenValidationResult(String externalUserId, String email, String name, boolean emailVerified,
-		String accessToken, java.time.Instant accessTokenExpiresAt) {
+		String accessToken, java.time.Instant accessTokenExpiresAt, String scope) {
 
 	public TokenValidationResult(String externalUserId, String email, String name, boolean emailVerified) {
-		this(externalUserId, email, name, emailVerified, null, null);
+		this(externalUserId, email, name, emailVerified, null, null, null);
+	}
+
+	public TokenValidationResult(String externalUserId, String email, String name, boolean emailVerified,
+			String accessToken, java.time.Instant accessTokenExpiresAt) {
+		this(externalUserId, email, name, emailVerified, accessToken, accessTokenExpiresAt, null);
 	}
 
 	public TokenValidationResult(String externalUserId, String email, String name) {
-		this(externalUserId, email, name, true, null, null);
+		this(externalUserId, email, name, true, null, null, null);
 	}
 
 	public TokenValidationResult {

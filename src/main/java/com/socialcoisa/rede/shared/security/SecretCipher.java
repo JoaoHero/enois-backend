@@ -30,8 +30,22 @@ public class SecretCipher {
 
 	private final SecretKeySpec key;
 
-	public SecretCipher(@Value("${rede.security.encryption-key:}") String base64Key) {
+	public SecretCipher(String base64Key) {
+		this(base64Key, false);
+	}
+
+	/**
+	 * Outside the dev profile the key is required at boot: a missing key used to silently disable
+	 * TOTP and leave the signup challenge without a stable signing secret across pods.
+	 */
+	@org.springframework.beans.factory.annotation.Autowired
+	public SecretCipher(@Value("${rede.security.encryption-key:}") String base64Key,
+			@Value("${rede.security.encryption-key-required:true}") boolean required) {
 		if (!StringUtils.hasText(base64Key)) {
+			if (required) {
+				throw new IllegalStateException(
+					"REDE_SECURITY_ENCRYPTION_KEY is required (32 bytes, base64). Only the dev profile may omit it.");
+			}
 			this.key = null;
 			return;
 		}

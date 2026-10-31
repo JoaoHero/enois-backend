@@ -55,6 +55,11 @@ public record MarketplaceListing(String id, String sellerId, ItemKind itemKind, 
 			createdAt, now);
 	}
 
+	public MarketplaceListing reopen(Instant now) {
+		return new MarketplaceListing(id, sellerId, itemKind, itemId, title, description, price, Status.ACTIVE,
+			createdAt, now);
+	}
+
 	public MarketplaceListing remove(Instant now) {
 		return new MarketplaceListing(id, sellerId, itemKind, itemId, title, description, price, Status.REMOVED,
 			createdAt, now);

@@ -11,5 +11,7 @@ public enum TargetType {
 	/** Publicação do feed privado de um grupo. */
 	GROUP_POST,
 	/** Comentário de uma publicação de grupo. */
-	GROUP_COMMENT
+	GROUP_COMMENT,
+	/** Mensagem privada (DM ou grupo). */
+	MESSAGE
 }

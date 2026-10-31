@@ -40,33 +40,29 @@ class UserProjectsController {
 	}
 
 	@GetMapping("/me/projects")
-	List<ProjectView> mine(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	List<ProjectView> mine(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return service.of(user.id().value()).stream().map(ProjectView::from).toList();
 	}
 
 	@PostMapping("/me/projects")
-	ResponseEntity<ProjectView> create(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<ProjectView> create(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody ProjectRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return ResponseEntity.status(201).body(ProjectView.from(service.create(user.id().value(), request.toDomain())));
 	}
 
 	@PutMapping("/me/projects/{projectId}")
-	ProjectView update(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ProjectView update(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String projectId, @RequestBody ProjectRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return ProjectView.from(service.update(user.id().value(), projectId, request.toDomain()));
 	}
 
 	@DeleteMapping("/me/projects/{projectId}")
-	ResponseEntity<Void> delete(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<Void> delete(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String projectId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		service.delete(user.id().value(), projectId);
 		return ResponseEntity.noContent().build();
 	}

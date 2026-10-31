@@ -20,7 +20,9 @@ class PushSubscriptionJpaEntity {
 	@Column(name = "user_id", nullable = false)
 	private String userId;
 
-	@Column(nullable = false, length = 1000)
+	// 700 e o tamanho real da coluna (`push_subscriptions.endpoint varchar(700)`) — declarar 1000
+	// prometia mais do que o banco guarda, e a quebra chegava como 409 sem dizer o campo.
+	@Column(nullable = false, length = 700)
 	private String endpoint;
 
 	@Column(nullable = false, length = 255)

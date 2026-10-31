@@ -42,7 +42,7 @@ public class SearchService {
 			}
 		}
 		List<SearchResult> results = new ArrayList<>();
-		String q = "%" + query.toLowerCase() + "%";
+		String q = query.trim();
 		if (effectiveTypes.contains("users")) {
 			results.addAll(repository.searchUsers(q, limit));
 		}

@@ -27,17 +27,15 @@ class LinkedInIntegrationController {
 	}
 
 	@GetMapping
-	StatusView status(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	StatusView status(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return StatusView.from(linkedin.status(user.id().value()));
 	}
 
 	@PutMapping
-	StatusView setPostSync(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	StatusView setPostSync(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody UpdateRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		if (request.postSync() == null) {
 			throw new ApiException(400, "BAD_REQUEST", "Informe a preferencia de sincronizacao.");
 		}

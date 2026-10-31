@@ -15,6 +15,10 @@ public interface MarketplaceRepository {
 
 	Optional<MarketplaceListing> findListingById(String id);
 
+	Optional<MarketplaceListing> findListingByIdForUpdate(String id);
+
+	boolean hasPurchaseForItem(String buyerId, String itemKind, String itemId);
+
 	Optional<MarketplaceListing> findActiveByItem(String itemKind, String itemId);
 
 	List<MarketplaceListing> findActive(int limit);
@@ -30,6 +34,8 @@ public interface MarketplaceRepository {
 	MarketplacePurchase savePurchase(MarketplacePurchase purchase);
 
 	Optional<MarketplacePurchase> findPurchaseById(String id);
+
+	Optional<MarketplacePurchase> findPurchaseByIdForUpdate(String id);
 
 	List<MarketplacePurchase> findHeldOlderThan(int limit);
 

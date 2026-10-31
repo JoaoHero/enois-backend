@@ -85,6 +85,15 @@ class DeveloperOriginTests {
 			.andExpect(status().isBadRequest());
 		mockMvc.perform(get("/media/nao-existe")).andExpect(status().isNotFound());
 		mockMvc.perform(get("/pages/nao-existe")).andExpect(status().isNotFound());
+		// Figurinha: o `<img>` do texto e da grade não manda Origin (provedor inválido = 404, sem rede).
+		mockMvc.perform(get("/emotes/image/XYZ/1")).andExpect(status().isNotFound());
+		// ...mas as rotas de DADOS do catálogo continuam exigindo origem.
+		mockMvc.perform(get("/emotes").param("page", "1"))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("ORIGIN_REQUIRED"));
+		mockMvc.perform(get("/emotes/index"))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("ORIGIN_REQUIRED"));
 	}
 
 	@Test
@@ -117,9 +126,15 @@ class DeveloperOriginTests {
 			.andExpect(status().isNoContent())
 			.andExpect(header().string("Access-Control-Allow-Origin", "https://app.example"));
 
+		// Preflight é sempre respondido, mesmo de origem não cadastrada: ele não executa nada nem
+		// devolve dado, e recusá-lo só vira falha de CORS no navegador. Quem continua barrado é a
+		// operação real (o GET logo abaixo).
 		mockMvc.perform(options("/v1")
 				.header("Origin", "https://evil.example")
 				.header("Access-Control-Request-Method", "GET"))
+			.andExpect(status().isNoContent());
+
+		mockMvc.perform(get("/v1").header("Origin", "https://evil.example"))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code").value("ORIGIN_NOT_ALLOWED"));
 
@@ -166,12 +181,38 @@ class DeveloperOriginTests {
 
 		// Caminho percent-encoded não pode escapar da regra de admin (URI crua, sem o template
 		// do MockMvc reencodar o "%").
-		mockMvc.perform(get(java.net.URI.create("/%61dmin/support")).header("Origin", "https://terceiro.example"))
-			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.code").value("ORIGIN_NOT_TRUSTED"));
+		// Cada caminho usa uma origem propria para o limite de abuso nao mascarar o guard.
+		for (String path : java.util.List.of("/%61dmin/support", "/admin/%73upport",
+				"/%6doderation/me", "/api/%61dmin/support",
+				"/admin;v=1/support/github", "/admin/support/github;v=1")) {
+			String origin = "https://encoded-" + Integer.toHexString(path.hashCode()) + ".example";
+			MvcResult registered = mockMvc.perform(post("/developers/origins")
+					.header("X-Session-Token", user.token())
+					.header("X-Client-Origin", APP_ORIGIN)
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(objectMapper.writeValueAsString(java.util.Map.of("origin", origin))))
+				.andExpect(status().isCreated()).andReturn();
+			String registeredId = objectMapper.readTree(registered.getResponse().getContentAsString())
+				.get("id").asString();
+			var request = get(java.net.URI.create(path));
+			if (path.startsWith("/api/")) {
+				request.contextPath("/api");
+			}
+			mockMvc.perform(request.header("Origin", origin))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.code").value("ORIGIN_NOT_TRUSTED"));
+			mockMvc.perform(delete("/developers/origins/" + registeredId)
+					.header("X-Session-Token", user.token())
+					.header("X-Client-Origin", APP_ORIGIN))
+				.andExpect(status().isOk());
+		}
 
 		// Origem do frontend passa o gate (a recusa seguinte é a falta de sessão, não a origem).
 		mockMvc.perform(get("/admin/support").header("X-Client-Origin", APP_ORIGIN))
+			.andExpect(status().isUnauthorized());
+
+		mockMvc.perform(get(java.net.URI.create("/%61dmin/support"))
+				.header("X-Client-Origin", APP_ORIGIN))
 			.andExpect(status().isUnauthorized());
 
 		// Curinga confiável de subdomínio.

@@ -23,6 +23,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import tools.jackson.databind.ObjectMapper;
 import com.socialcoisa.rede.media.application.port.out.MediaObjectStore;
@@ -74,6 +75,7 @@ class MediaStorageProxyTests {
 	static class FakeObjectStore implements MediaObjectStore {
 
 		byte[] conteudo = "conteudo-da-midia".getBytes(StandardCharsets.UTF_8);
+		String tipo = "image/jpeg";
 		String ultimoRange;
 		String chaveEscrita;
 		byte[] escrito;
@@ -82,7 +84,7 @@ class MediaStorageProxyTests {
 		public StoredObject read(String key, String range) {
 			this.ultimoRange = range;
 			boolean parcial = range != null;
-			return new StoredObject(new ByteArrayInputStream(conteudo), conteudo.length, "image/jpeg",
+			return new StoredObject(new ByteArrayInputStream(conteudo), conteudo.length, tipo,
 				parcial ? "bytes 0-4/" + conteudo.length : null, "\"etag-teste\"");
 		}
 
@@ -102,6 +104,25 @@ class MediaStorageProxyTests {
 		return (FakeObjectStore) store;
 	}
 
+	/**
+	 * O corpo da leitura é escrito na thread de streaming (`StreamingResponseBody`), então o
+	 * `perform` pode voltar antes de o buffer estar completo — na suíte inteira isso aparecia
+	 * como falha intermitente de corpo vazio. Esperar o buffer encher mantém a asserção exata.
+	 */
+	private void assertCorpoEmStreaming(MvcResult resultado, byte[] esperado) throws InterruptedException {
+		long limite = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+		byte[] corpo;
+		do {
+			corpo = resultado.getResponse().getContentAsByteArray();
+			if (corpo.length == esperado.length || System.nanoTime() > limite) {
+				break;
+			}
+			Thread.sleep(10);
+		}
+		while (true);
+		assertThat(corpo).isEqualTo(esperado);
+	}
+
 	@Test
 	void leituraFuncionaSemSessaoEComCacheLongo() throws Exception {
 		var resultado = mockMvc.perform(get("/storage/uploads/media_abc/media/x/foto.jpg"))
@@ -111,7 +132,67 @@ class MediaStorageProxyTests {
 			.andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("immutable")))
 			.andReturn();
 
-		assertThat(resultado.getResponse().getContentAsByteArray()).isEqualTo(store().conteudo);
+		assertCorpoEmStreaming(resultado, store().conteudo);
+	}
+
+	@Test
+	void allowedTypeIsServedInlineAndUnknownTypeAsDownload() throws Exception {
+		mockMvc.perform(get("/storage/uploads/media_inline/file.jpg"))
+			.andExpect(status().isOk())
+			.andExpect(header().string("Content-Disposition", "inline"))
+			.andExpect(header().string("X-Content-Type-Options", "nosniff"));
+
+		store().tipo = "text/html";
+		try {
+			mockMvc.perform(get("/storage/uploads/media_legacy/page.html"))
+				.andExpect(status().isOk())
+				.andExpect(header().string("Content-Type", "application/octet-stream"))
+				.andExpect(header().string("Content-Disposition", "attachment"));
+		}
+		finally {
+			store().tipo = "image/jpeg";
+		}
+	}
+
+	@Test
+	void objectKeyIsGeneratedByTheServerAndIgnoresTheClientFileName() throws Exception {
+		var dono = auth.authenticate("media_proxy_key");
+		var criado = mockMvc.perform(post("/media/uploads")
+				.header("X-Session-Token", dono.token())
+				.header("Idempotency-Key", "media-proxy-key-1")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of("fileName", "../../x/evil name.html",
+					"mimeType", "image/PNG; charset=binary", "size", 1024, "purpose", "POST_IMAGE"))))
+			.andExpect(status().isCreated())
+			.andReturn();
+
+		var body = objectMapper.readTree(criado.getResponse().getContentAsString());
+		String objectKey = body.path("objectKey").asText();
+		assertThat(objectKey).matches("uploads/media_[0-9a-f]+/file\\.png");
+		assertThat(body.path("cdnUrl").asText()).doesNotContain("evil").doesNotContain("..");
+		assertThat(body.path("uploadHeaders").path("Content-Type").asText()).isEqualTo("image/png");
+	}
+
+	@Test
+	void uploadKindRestrictsTheAcceptedTypes() throws Exception {
+		var dono = auth.authenticate("media_proxy_kind");
+		mockMvc.perform(post("/media/uploads")
+				.header("X-Session-Token", dono.token())
+				.header("Idempotency-Key", "media-proxy-kind-1")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of("fileName", "avatar.pdf",
+					"mimeType", "application/pdf", "size", 1024, "purpose", "AVATAR"))))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("MEDIA_TYPE_NOT_ALLOWED"));
+
+		mockMvc.perform(post("/media/uploads")
+				.header("X-Session-Token", dono.token())
+				.header("Idempotency-Key", "media-proxy-kind-2")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of("fileName", "cv.png",
+					"mimeType", "image/png", "size", 1024, "purpose", "RESUME"))))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("MEDIA_TYPE_NOT_ALLOWED"));
 	}
 
 	@Test

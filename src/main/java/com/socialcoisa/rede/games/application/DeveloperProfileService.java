@@ -87,7 +87,8 @@ public class DeveloperProfileService {
 		DeveloperProfile profile = profiles.findByUserId(userId).orElseGet(() -> DeveloperProfile.create(userId,
 			clock.instant()));
 		return profiles.save(profile.update(clean(displayName, MAX_NAME), clean(headline, MAX_HEADLINE),
-			clean(bio, MAX_BIO), clean(links, MAX_LINKS), clean(avatar, 500), clean(cover, 500), clock.instant()));
+			clean(bio, MAX_BIO), com.socialcoisa.rede.shared.web.SafeUrl.requireHttpUrls(clean(links, MAX_LINKS), "[,\\n]", "links"),
+			clean(avatar, 500), clean(cover, 500), clock.instant()));
 	}
 
 	@Transactional(readOnly = true)

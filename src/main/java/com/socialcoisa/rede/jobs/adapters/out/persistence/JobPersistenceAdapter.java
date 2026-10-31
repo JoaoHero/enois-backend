@@ -25,8 +25,7 @@ import jakarta.persistence.criteria.Subquery;
 @Repository
 class JobPersistenceAdapter implements JobRepository {
 
-	/** Caracteres que o LIKE interpreta: precisam ser escapados para o texto ser literal. */
-	private static final char LIKE_ESCAPE = '\\';
+	private static final char LIKE_ESCAPE = com.socialcoisa.rede.shared.web.LikePattern.ESCAPE;
 
 	private final SpringDataJobJpaRepository springData;
 	private final SpringDataJobApplicationJpaRepository applicationRepo;
@@ -134,7 +133,7 @@ class JobPersistenceAdapter implements JobRepository {
 	 */
 	private Predicate textMatch(CriteriaQuery<JobJpaEntity> criteria, CriteriaBuilder cb, Root<JobJpaEntity> root,
 			String rawText) {
-		String pattern = "%" + escapeLike(BooleanQuery.normalize(rawText)) + "%";
+		String pattern = "%" + com.socialcoisa.rede.shared.web.LikePattern.escape(BooleanQuery.normalize(rawText)) + "%";
 		List<Predicate> perField = new ArrayList<>();
 		for (String field : List.of("title", "company", "location", "type", "level")) {
 			perField.add(cb.like(cb.lower(cb.coalesce(root.get(field), "")), pattern, LIKE_ESCAPE));
@@ -152,10 +151,6 @@ class JobPersistenceAdapter implements JobRepository {
 		subquery.select(cb.literal(1))
 			.where(cb.equal(subRoot.get("id"), root.get("id")), cb.like(cb.lower(skill), pattern, LIKE_ESCAPE));
 		return cb.exists(subquery);
-	}
-
-	private String escapeLike(String value) {
-		return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
 	}
 
 	@Override

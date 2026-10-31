@@ -44,19 +44,17 @@ class ServiceOfferController {
 	List<ServiceView> catalog(@RequestParam(required = false) String category,
 			@RequestParam(required = false) String q,
 			@RequestParam(defaultValue = "30") int limit,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		String viewerId = viewerIdOrNull(userId, sessionToken);
+		String viewerId = viewerIdOrNull(sessionToken);
 		return services.catalog(category, q, limit).stream()
 			.map(offer -> ServiceView.of(offer, services.usernameOf(offer), viewerId))
 			.toList();
 	}
 
 	@GetMapping("/{username}/{serviceSlug}")
-	ServiceView bySlug(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ServiceView bySlug(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String username, @PathVariable String serviceSlug) {
-		String viewerId = viewerIdOrNull(userId, sessionToken);
+		String viewerId = viewerIdOrNull(sessionToken);
 		var offer = services.byUserAndSlug(username, serviceSlug, viewerId)
 			.orElseThrow(() -> new ApiException(404, "SERVICE_NOT_FOUND", "Serviço não encontrado."));
 		return ServiceView.of(offer, username, viewerId);
@@ -64,53 +62,48 @@ class ServiceOfferController {
 
 	/** A lista de quem está logado — todos os status, para acompanhar a moderação. */
 	@GetMapping("/mine")
-	List<ServiceView> mine(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	List<ServiceView> mine(@RequestHeader("X-Session-Token") String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return services.mine(user.id().value()).stream()
 			.map(offer -> ServiceView.of(offer, services.usernameOf(offer), user.id().value()))
 			.toList();
 	}
 
 	@PostMapping
-	Map<String, Object> submit(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken,
+	Map<String, Object> submit(@RequestHeader("X-Session-Token") String sessionToken,
 			@RequestBody CreateRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		var created = services.submit(user.id().value(), request.title(), request.description(),
 			request.link(), request.category());
 		return Map.of("id", created.id(), "slug", created.slug(), "status", created.status().name());
 	}
 
 	@PatchMapping("/{serviceId}")
-	Map<String, Object> edit(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String serviceId,
+	Map<String, Object> edit(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String serviceId,
 			@RequestBody CreateRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		var edited = services.edit(serviceId, user.id().value(), request.title(), request.description(),
 			request.link(), request.category());
 		return Map.of("id", edited.id(), "slug", edited.slug(), "status", edited.status().name());
 	}
 
 	@DeleteMapping("/{serviceId}")
-	Map<String, Object> remove(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String serviceId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	Map<String, Object> remove(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String serviceId) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		services.delete(serviceId, user.id().value());
 		return Map.of("deleted", true);
 	}
 
 	@PostMapping("/{serviceId}/resubmit")
-	Map<String, Object> resubmit(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String serviceId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	Map<String, Object> resubmit(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String serviceId) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		var resubmitted = services.resubmit(serviceId, user.id().value());
 		return Map.of("id", resubmitted.id(), "status", resubmitted.status().name());
 	}
 
-	private String viewerIdOrNull(String userId, String sessionToken) {
+	private String viewerIdOrNull(String sessionToken) {
 		try {
-			return currentUserResolver.resolve(userId, sessionToken).id().value();
+			return currentUserResolver.resolve(sessionToken).id().value();
 		}
 		catch (Exception ignored) {
 			return null;

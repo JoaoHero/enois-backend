@@ -17,6 +17,8 @@ import com.socialcoisa.rede.cosmetics.application.port.out.CommunityCosmeticRepo
 import com.socialcoisa.rede.cosmetics.domain.CommunityCosmetic;
 import com.socialcoisa.rede.cosmetics.domain.CommunityCosmeticKind;
 import com.socialcoisa.rede.cosmetics.domain.CommunityCosmeticStatus;
+import com.socialcoisa.rede.cosmetics.domain.CosmeticKind;
+import com.socialcoisa.rede.contributors.application.port.out.VerifiedContributorReader;
 import com.socialcoisa.rede.profile.domain.UserProfile;
 import com.socialcoisa.rede.profile.application.port.out.UserProfileRepository;
 import com.socialcoisa.rede.shared.web.ApiException;
@@ -32,8 +34,10 @@ public class CommunityCosmeticsService {
 	private static final int MAX_DESCRIPTION_CHARS = 300;
 	private static final Pattern HEX = Pattern.compile("^#[0-9a-fA-F]{6}$");
 	private static final Set<String> LICENSES = Set.of("ORIGINAL", "OPEN_SOURCE", "COMMERCIAL_LICENSE");
-	private static final Set<String> NAME_THEMES = Set.of("DEFAULT", "PIXEL", "GOTHIC", "NEON", "GLITCH", "CANDY");
-	private static final Set<String> NAME_FONTS = Set.of("SYSTEM", "SERIF", "MONO", "ROUNDED", "DISPLAY", "PIXEL", "GOTHIC");
+	private static final Set<String> NAME_THEMES = Set.of("DEFAULT", "PIXEL", "GOTHIC", "NEON", "GLITCH", "CANDY",
+		"RETRO", "OCEAN", "SUNSET", "MATRIX", "GOLD", "ICE");
+	private static final Set<String> NAME_FONTS = Set.of("SYSTEM", "SERIF", "MONO", "ROUNDED", "DISPLAY", "PIXEL",
+		"GOTHIC", "CURSIVE", "CONDENSED", "COMIC", "SLAB");
 	private static final Map<CommunityCosmeticKind, Set<String>> TOP_LEVEL_KEYS = Map.of(
 		CommunityCosmeticKind.FONT, Set.of("version", "kind", "family", "assetRef", "fallback"),
 		CommunityCosmeticKind.PALETTE, Set.of("version", "kind", "colors"),
@@ -45,30 +49,72 @@ public class CommunityCosmeticsService {
 	private final Clock clock;
 	private final ObjectMapper objectMapper;
 	private final UserProfileRepository profiles;
+	private final VerifiedContributorReader verifiedContributors;
+	private final CosmeticCatalog shopCatalog;
+	private final CosmeticsService shop;
 
 	public CommunityCosmeticsService(CommunityCosmeticRepository cosmetics, Clock clock, ObjectMapper objectMapper,
-		UserProfileRepository profiles) {
+		UserProfileRepository profiles, VerifiedContributorReader verifiedContributors, CosmeticCatalog shopCatalog,
+		CosmeticsService shop) {
 		this.cosmetics = cosmetics;
 		this.clock = clock;
 		this.objectMapper = objectMapper;
 		this.profiles = profiles;
+		this.verifiedContributors = verifiedContributors;
+		this.shopCatalog = shopCatalog;
+		this.shop = shop;
 	}
 
+	/**
+	 * Theme: one of the free presets, or the id of a NAME_STYLE shop item the person owns (stored as
+	 * the id, e.g. "nome-saci"). Font and color are optional (null = design system default).
+	 */
 	@Transactional
 	public UserProfile updateNameStyle(String userId, String theme, String font, String color) {
-		String normalizedTheme = theme == null || theme.isBlank() ? "DEFAULT" : theme.trim().toUpperCase(Locale.ROOT);
-		if (!NAME_THEMES.contains(normalizedTheme)) {
-			throw new ApiException(400, "INVALID_NAME_THEME", "Tema de nome inválido.");
-		}
-		if (!NAME_FONTS.contains(font)) {
+		String normalizedTheme = normalizeTheme(userId, theme);
+		if (font != null && !NAME_FONTS.contains(font)) {
 			throw new ApiException(400, "INVALID_NAME_FONT", "Fonte de nome inválida.");
 		}
-		if (color == null || !color.matches("^#[0-9a-fA-F]{6}$")) {
+		if (color != null && !HEX.matcher(color).matches()) {
 			throw new ApiException(400, "INVALID_NAME_COLOR", "A cor do nome precisa ser hexadecimal.");
 		}
 		UserProfile profile = profiles.findById(userId)
 			.orElseThrow(() -> new ApiException(404, "USER_NOT_FOUND", "Perfil não encontrado."));
-		profile.updateNameStyle(normalizedTheme, font, color.toLowerCase(Locale.ROOT), clock.instant());
+		profile.updateNameStyle(normalizedTheme, font, color == null ? null : color.toLowerCase(Locale.ROOT),
+			clock.instant());
+		return profiles.save(profile);
+	}
+
+	private String normalizeTheme(String userId, String theme) {
+		String trimmed = theme == null || theme.isBlank() ? "DEFAULT" : theme.trim();
+		var shopTheme = shopCatalog.item(trimmed).filter(item -> item.kind() == CosmeticKind.NAME_STYLE);
+		if (shopTheme.isPresent()) {
+			if (!shop.owns(userId, trimmed)) {
+				throw new ApiException(403, "NOT_OWNED", "Você precisa ter este estilo de nome antes de usar.");
+			}
+			return trimmed;
+		}
+		String preset = trimmed.toUpperCase(Locale.ROOT);
+		if (!NAME_THEMES.contains(preset)) {
+			throw new ApiException(400, "INVALID_NAME_THEME", "Tema de nome inválido.");
+		}
+		return preset;
+	}
+
+	/** Cor da tag "Contribuinte"; só quem tem contribuição verificada pode escolher (null = padrão). */
+	@Transactional
+	public UserProfile updateContributorTagColor(String userId, String color) {
+		if (verifiedContributors.find(userId).isEmpty()) {
+			throw new ApiException(403, "CONTRIBUTOR_NOT_VERIFIED",
+				"A tag de contribuinte é exclusiva de quem tem contribuição verificada pelo GitHub.");
+		}
+		String normalized = color == null || color.isBlank() ? null : color.trim().toLowerCase(Locale.ROOT);
+		if (normalized != null && !HEX.matcher(normalized).matches()) {
+			throw new ApiException(400, "INVALID_CONTRIBUTOR_TAG_COLOR", "A cor da tag precisa ser hexadecimal.");
+		}
+		UserProfile profile = profiles.findById(userId)
+			.orElseThrow(() -> new ApiException(404, "USER_NOT_FOUND", "Perfil não encontrado."));
+		profile.updateContributorTagColor(normalized, clock.instant());
 		return profiles.save(profile);
 	}
 

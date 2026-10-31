@@ -38,11 +38,11 @@ interface SpringDataGameJpaRepository extends JpaRepository<GameJpaEntity, Strin
 		SELECT g FROM GameJpaEntity g
 		WHERE g.status = :status
 		  AND (:query IS NULL
-		       OR LOWER(g.title) LIKE :query ESCAPE '\\'
-		       OR LOWER(COALESCE(g.description, '')) LIKE :query ESCAPE '\\'
-		       OR LOWER(COALESCE(g.tags, '')) LIKE :query ESCAPE '\\')
-		  AND (:genre IS NULL OR LOWER(COALESCE(g.genres, '')) LIKE :genre ESCAPE '\\')
-		  AND (:tag IS NULL OR LOWER(COALESCE(g.tags, '')) LIKE :tag ESCAPE '\\')
+		       OR LOWER(g.title) LIKE :query ESCAPE '!'
+		       OR LOWER(COALESCE(g.description, '')) LIKE :query ESCAPE '!'
+		       OR LOWER(COALESCE(g.tags, '')) LIKE :query ESCAPE '!')
+		  AND (:genre IS NULL OR LOWER(COALESCE(g.genres, '')) LIKE :genre ESCAPE '!')
+		  AND (:tag IS NULL OR LOWER(COALESCE(g.tags, '')) LIKE :tag ESCAPE '!')
 		  AND (:stage IS NULL OR g.stage = :stage)
 		  AND (:distribution IS NULL OR g.distribution = :distribution)
 		""")

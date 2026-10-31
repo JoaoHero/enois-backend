@@ -41,10 +41,9 @@ class ResumeImportController {
 	/** Sobe o curriculo (PDF ou texto) e recebe o retrato para revisar antes de salvar. */
 	@PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	LinkedinImportService.LinkedinImportPreview importResume(
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestParam("file") MultipartFile file) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return service.parse(file);
 	}
 
@@ -55,11 +54,10 @@ class ResumeImportController {
 	 */
 	@PostMapping(path = "/prefill/{jobId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	ResumeImportService.ApplyPrefillView prefillApplication(
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String jobId,
 			@RequestParam("file") MultipartFile file) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String resumeText = service.extractText(file);
 		return prefillService.prefill(user.id().value(), jobId, resumeText);
 	}

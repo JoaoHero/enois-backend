@@ -15,6 +15,8 @@ import com.socialcoisa.rede.feed.application.port.out.PostRepository;
 import com.socialcoisa.rede.feed.domain.AuthorIdentity;
 import com.socialcoisa.rede.feed.domain.Post;
 import com.socialcoisa.rede.feed.domain.PostType;
+import com.socialcoisa.rede.profile.application.ContributorTagView;
+import com.socialcoisa.rede.profile.application.NameStyleView;
 import com.socialcoisa.rede.profile.application.port.out.UserProfileRepository;
 import com.socialcoisa.rede.shared.html.SafeHtml;
 import com.socialcoisa.rede.shared.text.PlainText;
@@ -38,16 +40,19 @@ public class EditPostService implements EditPostUseCase {
 	private final FeedCacheRepository feedCacheRepository;
 	private final AuditLogRepository auditLogRepository;
 	private final UserProfileRepository userProfileRepository;
+	private final com.socialcoisa.rede.contributions.application.port.out.UserSealRepository userSeals;
 	private final Clock clock;
 
 	public EditPostService(PostRepository postRepository, ArticleRepository articleRepository,
 			FeedCacheRepository feedCacheRepository,
-			AuditLogRepository auditLogRepository, UserProfileRepository userProfileRepository, Clock clock) {
+			AuditLogRepository auditLogRepository, UserProfileRepository userProfileRepository,
+			com.socialcoisa.rede.contributions.application.port.out.UserSealRepository userSeals, Clock clock) {
 		this.postRepository = postRepository;
 		this.articleRepository = articleRepository;
 		this.feedCacheRepository = feedCacheRepository;
 		this.auditLogRepository = auditLogRepository;
 		this.userProfileRepository = userProfileRepository;
+		this.userSeals = userSeals;
 		this.clock = clock;
 	}
 
@@ -98,7 +103,11 @@ public class EditPostService implements EditPostUseCase {
 
 		var author = userProfileRepository.findById(saved.authorId().value()).orElse(null);
 		return author != null
-			? PostView.from(saved, author.username(), author.name(), author.avatar(), author.allBadges()).withAvatarFrame(author.avatarFrame())
+			? PostView.from(saved, author.username(), author.name(), author.avatar(), author.allBadges())
+				.withAvatarFrame(author.avatarFrame())
+				.withAuthorStyle(saved.authorIdentity() == AuthorIdentity.SOCIAL ? NameStyleView.from(author) : null)
+				.withContributor(saved.authorIdentity() == AuthorIdentity.SOCIAL && userSeals.hasActiveSeal(author.id())
+					? ContributorTagView.from(author) : null)
 			: PostView.from(saved);
 	}
 
@@ -132,13 +141,13 @@ public class EditPostService implements EditPostUseCase {
 			}
 			throw new ApiException(400, "INVALID_CONTENT", "Conteudo obrigatorio.");
 		}
-		String normalized = PlainText.defuse(content.trim());
-		// Mesmo limite da criacao, por tipo: editar nao pode ser a porta dos fundos do limite.
+		// Mesmo limite da criacao, por tipo: editar nao pode ser a porta dos fundos do limite. Measured on
+		// the text as sent, like creation does — defuse shortens repeated runs and would let it through.
 		int maxContent = com.socialcoisa.rede.feed.domain.PostContentLimits.of(type);
-		if (normalized.length() > maxContent) {
+		if (content.trim().length() > maxContent) {
 			throw new ApiException(400, "CONTENT_TOO_LONG", "Este tipo de post aceita no maximo " + maxContent + " caracteres.");
 		}
-		return normalized;
+		return PlainText.defuse(content.trim());
 	}
 
 	private List<String> normalizeTags(List<String> tags) {

@@ -36,18 +36,16 @@ class GameSocialController {
 
 	@PostMapping("/reviews")
 	GameSocialService.ReviewView review(@PathVariable String gameId,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader("X-Session-Token") String sessionToken,
 			@RequestBody ReviewRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return social.review(gameId, user.id().value(), request.rating(), request.body());
 	}
 
 	@DeleteMapping("/reviews/mine")
 	ResponseEntity<Void> deleteReview(@PathVariable String gameId,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader("X-Session-Token") String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		social.deleteReview(gameId, user.id().value());
 		return ResponseEntity.noContent().build();
 	}
@@ -60,18 +58,16 @@ class GameSocialController {
 
 	@PostMapping("/comments")
 	GameSocialService.CommentView comment(@PathVariable String gameId,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader("X-Session-Token") String sessionToken,
 			@RequestBody CommentRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return social.comment(gameId, user.id().value(), request.body());
 	}
 
 	@DeleteMapping("/comments/{commentId}")
 	ResponseEntity<Void> deleteComment(@PathVariable String gameId, @PathVariable String commentId,
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader("X-Session-Token") String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		social.deleteComment(gameId, commentId, user.id().value());
 		return ResponseEntity.noContent().build();
 	}

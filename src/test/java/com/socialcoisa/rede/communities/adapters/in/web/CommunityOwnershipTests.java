@@ -154,6 +154,24 @@ class CommunityOwnershipTests {
 		TestDatabase.deleteCommunity(otherId);
 	}
 
+	@Test
+	void anonymousMemberListOmitsInternalUserIds() throws Exception {
+		var owner = new TestAuthHelper(mockMvc, objectMapper).authenticate("own_members_owner");
+		String communityId = createCommunity(owner, "Membros anonimos " + java.util.UUID.randomUUID());
+
+		mockMvc.perform(get("/communities/" + communityId + "/members"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items[0].username").isNotEmpty())
+			.andExpect(jsonPath("$.items[0].role").value("ADMIN"))
+			.andExpect(jsonPath("$.items[0].userId").doesNotExist());
+
+		mockMvc.perform(get("/communities/" + communityId + "/members").header("X-Session-Token", owner.token()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items[0].userId").value(owner.userId()));
+
+		TestDatabase.deleteCommunity(communityId);
+	}
+
 	private String createCommunity(TestAuthHelper.AuthSession owner, String name) throws Exception {
 		MvcResult result = mockMvc.perform(post("/communities")
 				.header("X-Session-Token", owner.token())

@@ -63,10 +63,9 @@ class GamePlatformController {
 
 	/** A página pública do criador. `/games/{username}/profile` é literal e vence o `{gameSlug}`. */
 	@GetMapping("/games/{username}/profile")
-	DeveloperPageView developerPage(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	DeveloperPageView developerPage(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String username) {
-		String viewerId = viewerIdOrNull(userId, sessionToken);
+		String viewerId = viewerIdOrNull(sessionToken);
 		var page = developers.page(username, viewerId);
 		List<String> badges = profiles.findById(page.user().id()).map(p -> p.allBadges()).orElse(List.of());
 		return DeveloperPageView.from(page, badges);
@@ -77,9 +76,8 @@ class GamePlatformController {
 	 * (antes pedia `/games/me/profile`, um @ que não existe, e a tela abria vazia).
 	 */
 	@GetMapping("/games/profile/mine")
-	DeveloperPageView myDeveloperPage(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	DeveloperPageView myDeveloperPage(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		var page = developers.page(usernameOf(user.id().value()), user.id().value());
 		List<String> badges = profiles.findById(user.id().value()).map(p -> p.allBadges()).orElse(List.of());
 		return DeveloperPageView.from(page, badges);
@@ -87,10 +85,9 @@ class GamePlatformController {
 
 	/** O dono edita a própria página de criador (vazio limpa o campo). */
 	@PutMapping("/games/profile")
-	DeveloperPageView saveProfile(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	DeveloperPageView saveProfile(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody DeveloperProfileRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		developers.save(user.id().value(), request.displayName(), request.headline(), request.bio(),
 			request.links(), request.avatar(), request.cover());
 		var page = developers.page(usernameOf(user.id().value()), user.id().value());
@@ -100,20 +97,18 @@ class GamePlatformController {
 
 	/** Acompanhar (mão única) é alternar: acompanhar de novo deixa de acompanhar. */
 	@PostMapping("/games/{username}/follow")
-	Map<String, Object> follow(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> follow(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String username) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String developerId = developers.page(username, null).user().id();
 		boolean following = developers.toggleFollow(user.id().value(), developerId);
 		return Map.of("following", following);
 	}
 
 	@DeleteMapping("/games/{username}/follow")
-	Map<String, Object> unfollow(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> unfollow(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String username) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String developerId = developers.page(username, null).user().id();
 		if (developers.toggleFollow(user.id().value(), developerId)) {
 			// Estava seguindo: o toggle seguiu em vez de desfazer — desfaz.
@@ -126,26 +121,23 @@ class GamePlatformController {
 
 	/** A biblioteca de quem está logado (favoritos que continuam publicados). */
 	@GetMapping("/games/library")
-	List<GameView> library(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	List<GameView> library(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return library.library(user.id().value()).stream().map(game -> view(game, user.id().value())).toList();
 	}
 
 	@PostMapping("/games/{gameId}/favorite")
-	Map<String, Object> favorite(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> favorite(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		boolean favorited = library.toggle(user.id().value(), gameId);
 		return Map.of("favorited", favorited, "favorites", catalog.stats(gameId).get("favorites"));
 	}
 
 	@DeleteMapping("/games/{gameId}/favorite")
-	Map<String, Object> unfavorite(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> unfavorite(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		if (library.has(user.id().value(), gameId)) {
 			library.toggle(user.id().value(), gameId);
 		}
@@ -156,10 +148,9 @@ class GamePlatformController {
 
 	/** Alguém começou a jogar: o servidor conta a sessão (é daqui que sai a "popularidade"). */
 	@PostMapping("/games/{gameId}/play")
-	Map<String, Object> play(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> play(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId) {
-		String viewerId = viewerIdOrNull(userId, sessionToken);
+		String viewerId = viewerIdOrNull(sessionToken);
 		int plays = catalog.startPlay(gameId, viewerId);
 		return Map.of("plays", plays);
 	}
@@ -174,10 +165,9 @@ class GamePlatformController {
 	 * distintos e compartilhamentos. `days` é a janela (1 a 90; padrão 30).
 	 */
 	@GetMapping("/games/{gameId}/analytics")
-	GameCatalogService.GameAnalytics analytics(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	GameCatalogService.GameAnalytics analytics(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId, @RequestParam(defaultValue = "30") int days) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return catalog.analytics(gameId, user.id().value(), days);
 	}
 
@@ -188,10 +178,9 @@ class GamePlatformController {
 
 	/** O dono publica uma novidade; quem acompanha o criador é avisado. */
 	@PostMapping("/games/{gameId}/updates")
-	GameUpdateView publishUpdate(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	GameUpdateView publishUpdate(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId, @RequestBody GameUpdateRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return GameUpdateView.from(games.publishUpdate(gameId, user.id().value(), request.title(), request.body(),
 			request.version()));
 	}
@@ -201,10 +190,9 @@ class GamePlatformController {
 	 * banner por foto ou HTML). O link passa pelo mesmo guarda do envio.
 	 */
 	@PatchMapping("/games/{gameId}")
-	Map<String, Object> edit(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> edit(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId, @RequestBody EditGameRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		var edited = games.edit(gameId, user.id().value(), request.title(), request.description(), request.cover(),
 			request.url(), request.tags(), detailsOf(request), request.slug());
 		return Map.of("id", edited.id(), "slug", edited.slug(), "status", edited.status().name());
@@ -212,10 +200,9 @@ class GamePlatformController {
 
 	/** O jogo sai da loja (só o dono): registro, novidades, favoritos e histórico vão junto. */
 	@DeleteMapping("/games/{gameId}")
-	Map<String, Object> remove(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> remove(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		games.remove(gameId, user.id().value());
 		return Map.of("id", gameId, "status", "DELETED");
 	}
@@ -223,20 +210,18 @@ class GamePlatformController {
 	// --- moderação ---
 
 	@PostMapping("/admin/games/{gameId}/suspend")
-	Map<String, Object> suspend(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> suspend(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId, @RequestBody(required = false) ReviewRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		adminGuard.requireAdmin(user);
 		var suspended = games.suspend(gameId, user.id().value(), request == null ? null : request.note());
 		return Map.of("id", suspended.id(), "status", suspended.status().name());
 	}
 
 	@PostMapping("/admin/games/{gameId}/unsuspend")
-	Map<String, Object> unsuspend(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, Object> unsuspend(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String gameId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		adminGuard.requireAdmin(user);
 		var restored = games.unsuspend(gameId, user.id().value());
 		return Map.of("id", restored.id(), "status", restored.status().name());
@@ -258,9 +243,9 @@ class GamePlatformController {
 	}
 
 	/** Sessão opcional: sem sessão a leitura pública continua. */
-	private String viewerIdOrNull(String userId, String sessionToken) {
+	private String viewerIdOrNull(String sessionToken) {
 		try {
-			return currentUserResolver.resolve(userId, sessionToken).id().value();
+			return currentUserResolver.resolve(sessionToken).id().value();
 		}
 		catch (Exception ignored) {
 			return null;
@@ -271,7 +256,8 @@ class GamePlatformController {
 		return GameDetails.of(request.shortDescription(), request.genres(), request.languages(), request.controls(),
 			request.requirements(), request.contentWarnings(), parseStage(request.stage()),
 			parseDistribution(request.distribution()), request.priceCoins() == null ? 0 : request.priceCoins(),
-			parseAspect(request.aspect()), request.version(), request.websiteUrl(), request.supportUrl(),
+			parseAspect(request.aspect()), request.version(), com.socialcoisa.rede.shared.web.SafeUrl.requireHttpUrl(request.websiteUrl(), "site"),
+			com.socialcoisa.rede.shared.web.SafeUrl.requireHttpUrl(request.supportUrl(), "suporte"),
 			request.mediaIds() == null ? null : String.join(",", request.mediaIds()))
 			.withBranding(request.icon(), request.banner(), request.bannerHtml());
 	}

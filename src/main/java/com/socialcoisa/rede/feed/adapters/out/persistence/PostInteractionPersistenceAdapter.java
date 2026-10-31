@@ -60,16 +60,6 @@ class PostInteractionPersistenceAdapter implements PostInteractionRepository {
 	}
 
 	@Override
-	public long countReactionsReceived(String authorId) {
-		return reactionRepository.countReceivedExcludingSelf(authorId);
-	}
-
-	@Override
-	public long countReactionsReceivedSince(String authorId, java.time.Instant since) {
-		return reactionRepository.countReceivedSince(authorId, since);
-	}
-
-	@Override
 	public boolean removeReaction(PostId postId, UserId userId) {
 		return reactionRepository.findByPostIdAndUserId(postId.value(), userId.value())
 			.map(reaction -> {
@@ -84,6 +74,12 @@ class PostInteractionPersistenceAdapter implements PostInteractionRepository {
 		return savedPostRepository.findByUserIdOrderByCreatedAtDesc(userId.value()).stream()
 			.map(SavedPostJpaEntity::getPostId)
 			.toList();
+	}
+
+	@Override
+	public List<String> findReactedPostIdsByUserId(UserId userId, int limit) {
+		return reactionRepository.findPostIdsByUserId(userId.value(),
+			org.springframework.data.domain.PageRequest.of(0, Math.max(1, limit)));
 	}
 
 	@Override
@@ -214,11 +210,15 @@ class PostInteractionPersistenceAdapter implements PostInteractionRepository {
 	}
 
 	@Override
-	public Map<String, Integer> countCommentReactions(Collection<String> commentIds) {
+	public Map<String, Map<ReactionType, Long>> countCommentReactionsByType(Collection<String> commentIds,
+			Collection<String> excludedUserIds) {
 		if (commentIds == null || commentIds.isEmpty()) return Map.of();
-		Map<String, Integer> counts = new HashMap<>();
+		Collection<String> excluded = excludedUserIds == null ? java.util.List.of() : excludedUserIds;
+		Map<String, Map<ReactionType, Long>> counts = new HashMap<>();
 		for (CommentReactionJpaEntity r : commentReactionRepository.findByCommentIdIn(commentIds)) {
-			counts.merge(r.getCommentId(), 1, Integer::sum);
+			if (excluded.contains(r.getUserId())) continue;
+			counts.computeIfAbsent(r.getCommentId(), key -> new HashMap<>())
+				.merge(r.getReactionType(), 1L, Long::sum);
 		}
 		return counts;
 	}

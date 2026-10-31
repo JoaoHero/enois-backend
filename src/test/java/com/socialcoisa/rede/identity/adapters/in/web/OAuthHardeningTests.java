@@ -126,7 +126,7 @@ class OAuthHardeningTests {
 				.param("code", "codigo-valido").param("state", startState()))
 			.andExpect(status().isFound())
 			.andReturn();
-		String sessionToken = tokenFromRedirect(result.getResponse().getHeader("Location"));
+		String sessionToken = tokenFromRedirect(result);
 
 		// Mesma conta (nao duplicou), agora vinculada, com e-mail confirmado e 2FA delegado ao provedor.
 		mockMvc.perform(get("/auth/me").header("X-Session-Token", sessionToken))
@@ -177,13 +177,13 @@ class OAuthHardeningTests {
 
 		String state = startState();
 
-		// Com frontend-redirect-url configurado o callback devolve a sessao na URL de retorno.
+		// Com frontend-redirect-url configurado o callback volta ao app com a sessao no cookie.
 		MvcResult result = mockMvc.perform(get("/auth/oauth/google/callback")
 				.param("code", "codigo-valido").param("state", state))
 			.andExpect(status().isFound())
 			.andReturn();
 
-		String sessionToken = tokenFromRedirect(result.getResponse().getHeader("Location"));
+		String sessionToken = tokenFromRedirect(result);
 
 		// Quem entra pelo provedor nao passa pela confirmacao de e-mail.
 		mockMvc.perform(get("/auth/me").header("X-Session-Token", sessionToken))
@@ -222,13 +222,10 @@ class OAuthHardeningTests {
 		mockMvc.perform(get("/auth/oauth/providers")).andExpect(status().isUnauthorized());
 	}
 
-	private String tokenFromRedirect(String location) {
-		assertThat(location).isNotNull();
-		return java.util.Arrays.stream(location.split("[?&#]"))
-			.filter(part -> part.startsWith("token="))
-			.map(part -> part.substring("token=".length()))
-			.findFirst()
-			.orElseThrow(() -> new AssertionError("sem token na URL de retorno: " + location));
+	/** The redirect carries no credential; the session arrives in the HttpOnly cookie. */
+	private String tokenFromRedirect(MvcResult result) {
+		assertThat(result.getResponse().getHeader("Location")).endsWith("?status=ok");
+		return com.socialcoisa.rede.shared.web.TestAuthHelper.sessionToken(result);
 	}
 
 	private String startState() throws Exception {

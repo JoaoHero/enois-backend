@@ -44,6 +44,27 @@ class PushControllerTests {
 			.andExpect(status().isUnauthorized());
 	}
 
+
+	@Test
+	void endpointLongoDemaisRecusaCom400DizendoOCampo() throws Exception {
+		// A coluna e `push_subscriptions.endpoint varchar(700)` (o numero cabe no limite de chave
+		// do InnoDB sem prefixo). A entidade declarava 1000, entao um endpoint maior passava pela
+		// API e quebrava no INSERT com "Data too long" — que vira 409 "conflita com o estado atual".
+		var session = auth.authenticate("push_longo");
+		String endpoint = "https://push.example/" + "e".repeat(700);
+
+		String payload = objectMapper.writeValueAsString(
+			Map.of("endpoint", endpoint, "keys", Map.of("p256dh", "p256dh-key", "auth", "auth-key")));
+
+		mockMvc.perform(post("/push/subscriptions").header("X-Session-Token", session.token())
+				.header("Idempotency-Key", "push-sub-longo")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(payload))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVALID_PUSH_SUBSCRIPTION"))
+			.andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("longo demais")));
+	}
+
 	@Test
 	void registersAndRemovesSubscription() throws Exception {
 		var session = auth.authenticate("push_user");

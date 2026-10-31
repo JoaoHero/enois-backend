@@ -78,7 +78,10 @@ public final class SafeHtml {
 	// paginas animadas) casava no "behavior:" e a declaracao inteira era descartada.
 	private static final Pattern STYLE_DANGEROUS = Pattern.compile(
 		"(?is)[^;{}]*(?:expression\\s*\\(|javascript\\s*:\\s*|vbscript\\s*:|-moz-binding\\s*:"
-			+ "|(?<![a-zA-Z-])behavior\\s*:)[^;}]*;?");
+			+ "|(?<![a-zA-Z-])behavior\\s*:|image-set\\s*\\()[^;}]*;?");
+	/** CSS escape: a backslash plus 1-6 hex digits (and one optional whitespace), or plus any other char. */
+	private static final Pattern CSS_ESCAPE = Pattern.compile("\\\\(?:([0-9a-fA-F]{1,6})[ \\t\\r\\n\\f]?|([^0-9a-fA-F\\r\\n\\f]))");
+	private static final Pattern CSS_COMMENT = Pattern.compile("(?s)/\\*.*?(?:\\*/|$)");
 	private static final Pattern STYLE_URL = Pattern.compile("(?is)url\\s*\\(\\s*(['\"]?)([^'\")]*)\\1\\s*\\)");
 	private static final Pattern STYLE_ATTRIBUTE = Pattern.compile("(?is)\\sstyle\\s*=\\s*(\"([^\"]*)\"|'([^']*)')");
 	private static final Pattern STYLE_ELEMENT = Pattern.compile("(?is)<style\\b[^>]*>(.*?)</style>");
@@ -330,7 +333,7 @@ public final class SafeHtml {
 		if (!StringUtils.hasText(css)) {
 			return "";
 		}
-		String out = css.replace("<", "");
+		String out = decodeIdentifierEscapes(CSS_COMMENT.matcher(css).replaceAll("")).replace("<", "");
 		out = STYLE_IMPORT.matcher(out).replaceAll("");
 		out = STYLE_DANGEROUS.matcher(out).replaceAll("");
 		out = STYLE_URL.matcher(out).replaceAll(match -> {
@@ -342,6 +345,20 @@ public final class SafeHtml {
 			return target.startsWith("data:") ? match.group(0) : "";
 		});
 		return out.trim();
+	}
+
+	/**
+	 * Escapes and comments let a name be spelled so the filters above do not see it (a backslash-escaped
+	 * `url(`, a comment inside `expression(`) while the browser still reads it. Escapes that stand for a name character
+	 * are decoded, so every check runs on what the browser sees; other escapes (quotes, newlines,
+	 * non-ASCII in `content`) are kept as written, since decoding them could change the meaning.
+	 */
+	private static String decodeIdentifierEscapes(String css) {
+		return CSS_ESCAPE.matcher(css).replaceAll(match -> {
+			int codePoint = match.group(1) != null ? Integer.parseInt(match.group(1), 16) : match.group(2).codePointAt(0);
+			boolean nameChar = codePoint < 128 && (Character.isLetterOrDigit(codePoint) || codePoint == '-' || codePoint == '_');
+			return Matcher.quoteReplacement(nameChar ? Character.toString(codePoint) : match.group(0));
+		});
 	}
 
 	private static String sanitizeStyleAttributes(String markup) {

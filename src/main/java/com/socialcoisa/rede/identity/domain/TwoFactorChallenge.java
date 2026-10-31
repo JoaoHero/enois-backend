@@ -44,28 +44,12 @@ public class TwoFactorChallenge {
 		return new TwoFactorChallenge(id, userId, method, codeHash, attempts, expiresAt, consumedAt, createdAt);
 	}
 
-	public TwoFactorChallenge registerFailedAttempt() {
-		return new TwoFactorChallenge(id, userId, method, codeHash, attempts + 1, expiresAt, consumedAt, createdAt);
-	}
-
-	public TwoFactorChallenge replaceCode(String newCodeHash, Instant newExpiry) {
-		return new TwoFactorChallenge(id, userId, method, newCodeHash, 0, newExpiry, consumedAt, createdAt);
-	}
-
-	public TwoFactorChallenge consume(Instant now) {
-		return new TwoFactorChallenge(id, userId, method, codeHash, attempts, expiresAt, now, createdAt);
-	}
-
 	public boolean isExpired(Instant now) {
 		return now.isAfter(expiresAt);
 	}
 
 	public boolean isConsumed() {
 		return consumedAt != null;
-	}
-
-	public boolean isOutOfAttempts() {
-		return attempts >= MAX_ATTEMPTS;
 	}
 
 	public String id() {

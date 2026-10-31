@@ -14,37 +14,48 @@ import com.socialcoisa.rede.shared.security.SignupAttackGuard;
 import com.socialcoisa.rede.shared.web.ApiException;
 
 /**
- * Cadastro com o padrão de assinatura do ataque não nasce — e o IP de origem entra na lista na
- * mesma requisição.
+ * Cadastro com o padrão de assinatura do ataque não nasce, and repeated hits from one IP close
+ * signups from it for a short, expiring period.
  *
  * Depois de 20/10 e 22/10 (contas "probe-x3mm", "probe-p914", sempre do mesmo provedor de
  * hospedagem), esperar a triagem automática é esperar o atacante criar o próximo lote. Aqui a
  * contenção é imediata: o nome/username derivado bate no padrão configurado
  * ({@code rede.security.suspicious.name-patterns}, o mesmo da triagem) → 403 genérico, sem
- * ensinar a regra, e {@code blocked_ips} ganha o endereço (cadastro e login daquele IP param).
+ * ensinar a regra.
  *
- * O bloqueio é reversível no painel (/admin/blocked-ips/{ip}/unblock), então um falso positivo
- * tem conserto em um clique.
+ * <p>A name is a weak signal and the IP can be shared (NAT, carrier), so this never writes
+ * {@code blocked_ips} and never touches login: after {@value #STRIKES_TO_BLOCK} hits in the window,
+ * only signups from that IP are refused for {@code SIGNUP_COOLDOWN_MS}. A permanent block stays a
+ * moderator decision in the panel.</p>
+ *
+ * <p>ponytail: per-pod memory; a shared store if the cooldown must hold across replicas.</p>
  */
 @Service
 public class SuspiciousSignupGuard implements SignupAttackGuard {
 
 	private static final Logger LOG = LoggerFactory.getLogger(SuspiciousSignupGuard.class);
-	/** Quem aparece na trilha do bloqueio: não é uma pessoa, é a automação. */
-	static final String ACTOR = "automod:cadastro";
 
-	private final IpBlockService ipBlocks;
 	private final boolean enabled;
 	private final List<String> patterns;
 	/** Um único nome suspeito não pode derrubar o IP de uma rede inteira (N-08). */
 	private final java.util.Map<String, java.util.Deque<Long>> recentByIp = new java.util.concurrent.ConcurrentHashMap<>();
 	private static final int STRIKES_TO_BLOCK = 3;
 	private static final long STRIKE_WINDOW_MS = 10 * 60 * 1000;
+	private static final long SIGNUP_COOLDOWN_MS = 60 * 60 * 1000;
+	private static final int MAX_KEYS = 20_000;
+	private final java.util.Map<String, Long> cooldownUntil = new java.util.concurrent.ConcurrentHashMap<>();
+	/** Ceiling for both maps, so a flood of distinct IPs cannot grow memory without bound. */
+	private final int maxKeys;
 
-	public SuspiciousSignupGuard(IpBlockService ipBlocks,
+	@org.springframework.beans.factory.annotation.Autowired
+	public SuspiciousSignupGuard(
 			@Value("${rede.security.signup-guard-enabled:true}") boolean enabled,
 			@Value("${rede.security.suspicious.name-patterns:probe}") String patterns) {
-		this.ipBlocks = ipBlocks;
+		this(enabled, patterns, MAX_KEYS);
+	}
+
+	SuspiciousSignupGuard(boolean enabled, String patterns, int maxKeys) {
+		this.maxKeys = maxKeys;
 		this.enabled = enabled;
 		this.patterns = Arrays.stream(patterns.split(","))
 			.map(String::trim)
@@ -55,7 +66,15 @@ public class SuspiciousSignupGuard implements SignupAttackGuard {
 
 	@Override
 	public void checkSignup(String name, String email, String ip) {
-		if (!enabled || !StringUtils.hasText(name) || patterns.isEmpty()) {
+		if (!enabled || patterns.isEmpty()) {
+			return;
+		}
+		long now = System.currentTimeMillis();
+		Long until = cooldownUntil.get(ip == null ? "" : ip);
+		if (until != null && until > now) {
+			throw refused();
+		}
+		if (!StringUtils.hasText(name)) {
 			return;
 		}
 		String typed = name.trim().toLowerCase(Locale.ROOT);
@@ -63,11 +82,15 @@ public class SuspiciousSignupGuard implements SignupAttackGuard {
 			return;
 		}
 		if (registerStrike(ip)) {
-			blockIp(ip);
+			startCooldown(ip, now);
 		}
 		LOG.warn("Cadastro recusado por padrão de ataque (ip={}, email={})", ip, mask(email));
-		// Mensagem genérica: o atacante não descobre qual palavra disparou o bloqueio.
-		throw new ApiException(403, "SIGNUP_REFUSED",
+		throw refused();
+	}
+
+	/** Mensagem genérica: o atacante não descobre qual palavra disparou o bloqueio. */
+	private static ApiException refused() {
+		return new ApiException(403, "SIGNUP_REFUSED",
 			"Não foi possível criar a conta agora. Tente novamente mais tarde.");
 	}
 
@@ -76,6 +99,9 @@ public class SuspiciousSignupGuard implements SignupAttackGuard {
 			return false;
 		}
 		long now = System.currentTimeMillis();
+		if (recentByIp.size() >= maxKeys) {
+			recentByIp.clear();
+		}
 		java.util.Deque<Long> strikes = recentByIp.computeIfAbsent(ip, key -> new java.util.ArrayDeque<>());
 		synchronized (strikes) {
 			while (!strikes.isEmpty() && now - strikes.peekFirst() > STRIKE_WINDOW_MS) {
@@ -90,19 +116,20 @@ public class SuspiciousSignupGuard implements SignupAttackGuard {
 		return true;
 	}
 
-	private void blockIp(String ip) {
-		if (!StringUtils.hasText(ip) || "desconhecido".equals(ip)) {
-			return;
+	private void startCooldown(String ip, long now) {
+		if (cooldownUntil.size() >= maxKeys) {
+			cooldownUntil.values().removeIf(until -> until <= now);
+			if (cooldownUntil.size() >= maxKeys) {
+				// Same bound as AuthThrottle: live cooldowns are dropped rather than growing without end.
+				cooldownUntil.clear();
+			}
 		}
-		try {
-			ipBlocks.block(ACTOR, ip, "Cadastro com padrão de ataque conhecido.");
-		}
-		catch (ApiException alreadyBlocked) {
-			// 409 = já estava bloqueado; o efeito desejado continua valendo.
-		}
-		catch (RuntimeException failure) {
-			LOG.warn("Não foi possível bloquear o IP {} do cadastro recusado: {}", ip, failure.getMessage());
-		}
+		cooldownUntil.put(ip, now + SIGNUP_COOLDOWN_MS);
+		LOG.warn("Cadastros pausados para um IP após indícios repetidos (ip={})", ip);
+	}
+
+	int trackedKeys() {
+		return recentByIp.size() + cooldownUntil.size();
 	}
 
 	/** O e-mail não vai inteiro para o log: só o bastante para o time reconhecer a conta. */

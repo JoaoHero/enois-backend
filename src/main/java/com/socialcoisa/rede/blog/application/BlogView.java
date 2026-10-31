@@ -3,6 +3,7 @@ package com.socialcoisa.rede.blog.application;
 import java.util.List;
 
 import com.socialcoisa.rede.blog.domain.Blog;
+import com.socialcoisa.rede.profile.application.NameStyleView;
 import com.socialcoisa.rede.profile.domain.UserProfile;
 
 /**
@@ -11,8 +12,8 @@ import com.socialcoisa.rede.profile.domain.UserProfile;
  * diz se quem esta lendo e o dono.
  */
 public record BlogView(String id, String slug, String title, String description, String themeHtml, String authorName,
-		String authorUsername, String authorAvatar, String authorBadge, List<String> authorBadges, int posts,
-		boolean subscribed, boolean owner, List<BlogPostView> items) {
+		String authorUsername, String authorAvatar, String authorBadge, List<String> authorBadges,
+		NameStyleView authorStyle, int posts, boolean subscribed, boolean owner, List<BlogPostView> items) {
 
 	public static BlogView from(Blog blog, UserProfile author, int posts, boolean subscribed, boolean owner,
 			List<BlogPostView> items) {
@@ -23,7 +24,7 @@ public record BlogView(String id, String slug, String title, String description,
 			author == null ? null : author.avatar(),
 			badges.isEmpty() ? null : badges.get(0),
 			badges,
-			posts, subscribed, owner, items);
+			NameStyleView.from(author), posts, subscribed, owner, items);
 	}
 
 	/**
@@ -33,6 +34,6 @@ public record BlogView(String id, String slug, String title, String description,
 	 */
 	public BlogView withoutItems() {
 		return new BlogView(id, slug, title, description, themeHtml, authorName, authorUsername, authorAvatar,
-			authorBadge, authorBadges, posts, subscribed, owner, List.of());
+			authorBadge, authorBadges, authorStyle, posts, subscribed, owner, List.of());
 	}
 }

@@ -75,6 +75,7 @@ class MarketplaceGenericItemTests {
 		assertThat(catalog).contains(listingId);
 
 		MvcResult buyResult = mockMvc.perform(post("/marketplace/" + listingId + "/buy")
+				.header("Idempotency-Key", java.util.UUID.randomUUID().toString())
 				.header("X-Session-Token", buyer.token()))
 			.andReturn();
 		assertThat(buyResult.getResponse().getStatus())
@@ -101,5 +102,14 @@ class MarketplaceGenericItemTests {
 			.andExpect(status().isOk())
 			.andReturn().getResponse().getContentAsString();
 		assertThat(purchases).contains("TEMPLATE").contains("Template de apresentação");
+
+		mockMvc.perform(post("/marketplace/purchases/" + purchaseId + "/refund")
+				.header("Idempotency-Key", java.util.UUID.randomUUID().toString())
+				.header("X-Session-Token", buyer.token()))
+			.andExpect(status().isOk());
+		mockMvc.perform(get("/marketplace/purchases/" + purchaseId + "/content")
+				.header("X-Session-Token", buyer.token()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("PURCHASE_REFUNDED"));
 	}
 }

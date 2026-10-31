@@ -4,6 +4,7 @@ public class ApiException extends RuntimeException {
 
 	private final int status;
 	private final String code;
+	private long retryAfterSeconds;
 
 	public ApiException(int status, String code, String message) {
 		super(message);
@@ -17,5 +18,14 @@ public class ApiException extends RuntimeException {
 
 	public String code() {
 		return code;
+	}
+
+	public long retryAfterSeconds() {
+		return retryAfterSeconds;
+	}
+
+	public ApiException withRetryAfter(long seconds) {
+		this.retryAfterSeconds = seconds;
+		return this;
 	}
 }

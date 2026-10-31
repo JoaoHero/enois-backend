@@ -11,6 +11,7 @@ import org.springframework.util.StringUtils;
 import com.socialcoisa.rede.profile.application.port.in.GetMeUseCase;
 import com.socialcoisa.rede.profile.application.port.in.GetUserProfileUseCase;
 import com.socialcoisa.rede.profile.application.port.in.UpdateProfileUseCase;
+import com.socialcoisa.rede.profile.application.port.out.OfficialBadgeReader;
 import com.socialcoisa.rede.profile.application.port.out.SocialPostCountReader;
 import com.socialcoisa.rede.profile.application.port.out.UserProfileRepository;
 import com.socialcoisa.rede.profile.domain.UserProfile;
@@ -27,12 +28,13 @@ public class ProfileService implements GetMeUseCase, GetUserProfileUseCase, Upda
 	private final com.socialcoisa.rede.age.application.port.out.ParentalLinkRepository parentalLinks;
 	private final SocialPostCountReader postCounts;
 	private final SanctionGateReader sanctionGate;
+	private final OfficialBadgeReader officialBadges;
 	private final Clock clock;
 
 	public ProfileService(UserProfileRepository repository, ReputationService reputationService,
 			org.springframework.beans.factory.ObjectProvider<com.socialcoisa.rede.media.application.LazyUrlMigrationService> lazyMedia,
 			com.socialcoisa.rede.age.application.port.out.ParentalLinkRepository parentalLinks,
-			SocialPostCountReader postCounts, SanctionGateReader sanctionGate,
+			SocialPostCountReader postCounts, SanctionGateReader sanctionGate, OfficialBadgeReader officialBadges,
 			Clock clock) {
 		this.repository = repository;
 		this.reputationService = reputationService;
@@ -40,6 +42,7 @@ public class ProfileService implements GetMeUseCase, GetUserProfileUseCase, Upda
 		this.parentalLinks = parentalLinks;
 		this.postCounts = postCounts;
 		this.sanctionGate = sanctionGate;
+		this.officialBadges = officialBadges;
 		this.clock = clock;
 	}
 
@@ -139,6 +142,7 @@ public class ProfileService implements GetMeUseCase, GetUserProfileUseCase, Upda
 	private UserProfile populateCounts(UserProfile profile) {
 		ReputationService.Counts counts = reputationService.countsFor(profile.id());
 		profile.setCounts(counts.connections(), counts.followers(), counts.reputation());
+		profile.setGarden(counts.garden());
 		profile.setPostsCount(postCounts.countByUser(profile.id()));
 		repository.save(profile);
 		return profile;
@@ -243,6 +247,10 @@ public class ProfileService implements GetMeUseCase, GetUserProfileUseCase, Upda
 			username = slug;
 		}
 		validateLengths(command);
+		// The single badge column is shown like the badge list: an official id there needs ownership too.
+		if (command.badge() != null && !officialBadges.ownsAllOfficial(profile.id(), List.of(command.badge().trim()))) {
+			throw new ApiException(403, "NOT_OWNED", "Voce so pode exibir emblemas oficiais que tem.");
+		}
 		String portfolio = com.socialcoisa.rede.shared.web.SafeUrl.requireHttpUrl(trim(command.portfolio()), "portfolio");
 		List<String> externalLinks = com.socialcoisa.rede.shared.web.SafeUrl
 			.requireHttpUrls(clean(command.externalLinks()), "link");
@@ -251,10 +259,19 @@ public class ProfileService implements GetMeUseCase, GetUserProfileUseCase, Upda
 			clean(command.skills()),
 			clean(command.goals()), trim(command.availability()), portfolio, externalLinks,
 			command.openToWork(), command.isMentor(), username, trim(command.aka()), clock.instant());
+		// Cidade/UF: os dois ausentes mantem; os dois vazios limpam; so um preenchido e 400.
+		if (command.city() != null || command.state() != null) {
+			profile.updatePlace(com.socialcoisa.rede.shared.geo.CityState.of(command.city(), command.state()),
+				clock.instant());
+		}
+		if (command.showCity() != null) {
+			profile.setShowCity(command.showCity(), clock.instant());
+		}
 		// Curriculo: ausente no corpo da requisicao mantem o que ja estava; vazio limpa. Nao passa
 		// pelo `update` geral porque nao e campo de exibicao — e arquivo, e so o dono le.
 		if (command.resumeUrl() != null) {
-			profile.updateResume(command.resumeUrl(), command.resumeName(), clock.instant());
+			profile.updateResume(com.socialcoisa.rede.shared.web.SafeUrl.requireHttpUrl(command.resumeUrl(), "curriculo"), command.resumeName(),
+				clock.instant());
 		}
 		// A bio em HTML e sanitizada aqui, como o HTML do post de pagina: allowlist de tags e CSS.
 		// Vazio limpa (o perfil volta para a bio de texto); ausente no corpo da requisicao mantem.
@@ -269,6 +286,21 @@ public class ProfileService implements GetMeUseCase, GetUserProfileUseCase, Upda
 			profile.updateBannerHtml(StringUtils.hasText(command.bannerHtml())
 				? SafeHtml.requireProfileHtml(command.bannerHtml())
 				: null, clock.instant());
+		}
+		// Data de nascimento: ausente no corpo preserva; presente salva via declareBirthDate
+		// (mesma validacao do endpoint dedicado).
+		if (command.birthDate() != null) {
+			if (StringUtils.hasText(command.birthDate())) {
+				java.time.LocalDate date;
+				try {
+					date = java.time.LocalDate.parse(command.birthDate().trim());
+				}
+				catch (Exception e) {
+					throw new ApiException(400, "INVALID_BIRTH_DATE",
+						"Data de nascimento invalida (use aaaa-mm-dd).");
+				}
+				profile.declareBirthDate(date, clock.instant());
+			}
 		}
 		return OwnProfileView.from(repository.save(profile));
 	}

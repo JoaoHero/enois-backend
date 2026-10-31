@@ -42,10 +42,7 @@ class ExternalJobPersistenceAdapter implements ExternalJobRepository {
 	@org.springframework.cache.annotation.Cacheable("externalJobs")
 	public List<ExternalJob> search(String query, int limit) {
 		// `%` e `_` do texto viram literais: sem isso, buscar "_" casaria com tudo.
-		String escaped = query.toLowerCase(java.util.Locale.ROOT)
-			.replace("\\", "\\\\")
-			.replace("%", "\\%")
-			.replace("_", "\\_");
+		String escaped = com.socialcoisa.rede.shared.web.LikePattern.escape(query.toLowerCase(java.util.Locale.ROOT));
 		return repository.search("%" + escaped + "%", PageRequest.of(0, Math.max(1, limit))).stream()
 			.map(ExternalJobJpaEntity::toDomain)
 			.toList();
@@ -59,8 +56,7 @@ class ExternalJobPersistenceAdapter implements ExternalJobRepository {
 			return repository.findByPlatformOrderByLastCheckedAtDesc(platform, page).stream()
 				.map(ExternalJobJpaEntity::toDomain).toList();
 		}
-		String escaped = query.toLowerCase(java.util.Locale.ROOT)
-			.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+		String escaped = com.socialcoisa.rede.shared.web.LikePattern.escape(query.toLowerCase(java.util.Locale.ROOT));
 		return repository.searchByPlatform(platform, "%" + escaped + "%", page).stream()
 			.map(ExternalJobJpaEntity::toDomain).toList();
 	}
@@ -77,8 +73,7 @@ class ExternalJobPersistenceAdapter implements ExternalJobRepository {
 	@org.springframework.cache.annotation.Cacheable(value = "externalJobs",
 		key = "'excluding:' + #platform + ':' + (#query ?: '') + ':' + #limit")
 	public List<ExternalJob> searchExcludingPlatform(String platform, String query, int limit) {
-		String escaped = query.toLowerCase(java.util.Locale.ROOT)
-			.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+		String escaped = com.socialcoisa.rede.shared.web.LikePattern.escape(query.toLowerCase(java.util.Locale.ROOT));
 		return repository.searchExcludingPlatform(platform, "%" + escaped + "%",
 			PageRequest.of(0, Math.max(1, limit))).stream().map(ExternalJobJpaEntity::toDomain).toList();
 	}

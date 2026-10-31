@@ -30,32 +30,59 @@ public class TurnstileValidator {
 
 	private final String secretKey;
 	private final String siteKey;
-	private final boolean failOpen;
-	private final boolean rejectTestKeys;
+	private final boolean refuseTestKeysAtBoot;
 	private final ObjectMapper objectMapper;
 	private final HttpClient httpClient;
 
 	public TurnstileValidator(@Value("${rede.turnstile.secret-key:}") String secretKey,
 			@Value("${rede.turnstile.site-key:}") String siteKey,
-			@Value("${rede.turnstile.fail-open:false}") boolean failOpen,
-			@Value("${rede.turnstile.reject-test-keys:true}") boolean rejectTestKeys,
+			@Value("${rede.turnstile.test-key-policy:degrade}") String testKeyPolicy,
 			ObjectMapper objectMapper) {
 		this.secretKey = secretKey;
 		this.siteKey = siteKey;
-		this.failOpen = failOpen;
-		this.rejectTestKeys = rejectTestKeys;
+		this.refuseTestKeysAtBoot = isFatalPolicy(testKeyPolicy);
 		this.objectMapper = objectMapper;
 		this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
-		if (rejectTestKeys && (isTestKey(secretKey) || isTestKey(siteKey))) {
-			LOG.warn("Turnstile com chave de TESTE do Cloudflare: o captcha sera tratado como indisponivel "
-				+ "para nao aceitar token dummy (N-10).");
+		// As chaves publicas de teste da Cloudflare aceitam QUALQUER token. O que fazer com elas e
+		// configuravel, porque nenhuma das duas escolhas pode ser surpresa:
+		//   degrade (default) — o captcha externo e tratado como desligado e o cadastro usa o desafio
+		//       proprio do backend, com ERROR no log. O site continua de pe.
+		//   fatal — recusa o boot. Para quem quer a garantia dura de "nunca rodar sem captcha real".
+		// Uma politica escrita errado nunca derruba o ambiente: cai em degrade e avisa no log.
+		if (!isTestKey(secretKey) && !isTestKey(siteKey)) {
+			return;
 		}
+		if (refuseTestKeysAtBoot) {
+			throw new IllegalStateException("TURNSTILE_SITE_KEY/TURNSTILE_SECRET_KEY are Cloudflare test keys. "
+				+ "Configure real keys, leave both empty (the signup challenge is used instead), or set "
+				+ "rede.turnstile.test-key-policy=degrade.");
+		}
+		LOG.error("TURNSTILE_* sao chaves de TESTE da Cloudflare: o captcha externo esta DESLIGADO neste ambiente "
+				+ "e o cadastro usa o desafio proprio do backend (rede.turnstile.test-key-policy=degrade).");
 	}
 
-	/** A proteção externa está configurada? Sem isso, o cadastro usa o desafio próprio. */
+	/** Só `fatal` recusa o boot; qualquer outro valor (inclusive um typo) degrada e e reportado. */
+	private static boolean isFatalPolicy(String policy) {
+		String value = policy == null ? "" : policy.trim().toLowerCase(java.util.Locale.ROOT);
+		if (value.isEmpty() || value.equals("degrade")) {
+			return false;
+		}
+		if (value.equals("fatal")) {
+			return true;
+		}
+		LOG.error("rede.turnstile.test-key-policy=\"{}\" nao existe (valores: degrade, fatal); usando degrade.",
+			policy);
+		return false;
+	}
+
+	/**
+	 * A proteção externa está configurada? Sem isso, o cadastro usa o desafio próprio.
+	 *
+	 * Chave de teste nunca conta como configurada, com ou sem a guarda de boot: ela aceita qualquer
+	 * token no siteverify, então tratá-la como "captcha ativo" abriria o cadastro para bot.
+	 */
 	public boolean isConfigured() {
-		return secretKey != null && !secretKey.isBlank()
-			&& !(rejectTestKeys && isTestKey(secretKey));
+		return secretKey != null && !secretKey.isBlank() && !isTestKey(secretKey);
 	}
 
 	private static boolean isTestKey(String key) {
@@ -70,10 +97,9 @@ public class TurnstileValidator {
 		return siteKey;
 	}
 
-	/** Configurado E com site key: é o que o front consegue renderizar. */
+	/** Configurado E com site key real: é o que o front consegue renderizar. */
 	public boolean isAvailable() {
-		return isConfigured() && siteKey != null && !siteKey.isBlank()
-			&& !(rejectTestKeys && isTestKey(siteKey));
+		return isConfigured() && siteKey != null && !siteKey.isBlank() && !isTestKey(siteKey);
 	}
 
 	public void require(String token) {
@@ -84,7 +110,9 @@ public class TurnstileValidator {
 			throw new ApiException(403, "TURNSTILE_REQUIRED", "Verificacao anti-bot obrigatoria.");
 		}
 		try {
-			String body = "secret=" + secretKey + "&response=" + token;
+			// Encoded: a token containing '&' or '=' must not add form fields to the verification call.
+			String body = "secret=" + java.net.URLEncoder.encode(secretKey, java.nio.charset.StandardCharsets.UTF_8)
+				+ "&response=" + java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8);
 			HttpRequest request = HttpRequest.newBuilder()
 				.uri(URI.create(VERIFY_URL))
 				.header("Content-Type", "application/x-www-form-urlencoded")
@@ -103,10 +131,8 @@ public class TurnstileValidator {
 		}
 		catch (Exception failure) {
 			LOG.error("Erro ao validar Turnstile: {}", failure.getMessage());
-			if (!failOpen) {
-				throw new ApiException(503, "TURNSTILE_UNAVAILABLE",
-					"Verificacao anti-bot indisponivel agora. Tente novamente em instantes.");
-			}
+			throw new ApiException(503, "TURNSTILE_UNAVAILABLE",
+				"Verificacao anti-bot indisponivel agora. Tente novamente em instantes.");
 		}
 	}
 }

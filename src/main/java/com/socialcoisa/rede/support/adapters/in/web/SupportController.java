@@ -19,9 +19,11 @@ import org.springframework.web.bind.annotation.RestController;
 import com.socialcoisa.rede.shared.web.AdminGuard;
 import com.socialcoisa.rede.shared.web.CurrentUser;
 import com.socialcoisa.rede.shared.web.CurrentUserResolver;
+import com.socialcoisa.rede.shared.web.ModeratorGuard;
 import com.socialcoisa.rede.shared.web.PiiMask;
 import com.socialcoisa.rede.support.application.SupportGithubConfig;
 import com.socialcoisa.rede.support.application.SupportService;
+import com.socialcoisa.rede.support.application.SupportThreadService;
 import com.socialcoisa.rede.support.domain.SupportCategory;
 import com.socialcoisa.rede.support.domain.SupportRequest;
 import com.socialcoisa.rede.support.domain.SupportStatus;
@@ -30,18 +32,23 @@ import com.socialcoisa.rede.support.domain.SupportStatus;
 class SupportController {
 
 	private final SupportService supportService;
+	private final SupportThreadService supportThread;
 	private final SupportGithubConfig githubConfig;
 	private final CurrentUserResolver currentUserResolver;
 	private final AdminGuard adminGuard;
+	private final ModeratorGuard moderatorGuard;
 	private final String supportEmail;
 
-	SupportController(SupportService supportService, SupportGithubConfig githubConfig,
-			CurrentUserResolver currentUserResolver, AdminGuard adminGuard,
+	SupportController(SupportService supportService, SupportThreadService supportThread,
+			SupportGithubConfig githubConfig, CurrentUserResolver currentUserResolver, AdminGuard adminGuard,
+			ModeratorGuard moderatorGuard,
 			@org.springframework.beans.factory.annotation.Value("${rede.support.email:}") String supportEmail) {
 		this.supportService = supportService;
+		this.supportThread = supportThread;
 		this.githubConfig = githubConfig;
 		this.currentUserResolver = currentUserResolver;
 		this.adminGuard = adminGuard;
+		this.moderatorGuard = moderatorGuard;
 		this.supportEmail = supportEmail;
 	}
 
@@ -56,10 +63,9 @@ class SupportController {
 
 	/** Abre um pedido de ajuda para ser atendido por uma pessoa do time. */
 	@PostMapping("/support/requests")
-	ResponseEntity<SupportRequestView> open(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<SupportRequestView> open(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody CreateSupportRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		SupportRequest created = supportService.open(user.id().value(), request.subject(), request.message(),
 			request.contactEmail(), request.imageUrl(), request.category());
 		return ResponseEntity.status(HttpStatus.CREATED).body(SupportRequestView.from(created));
@@ -67,10 +73,9 @@ class SupportController {
 
 	/** Histórico do próprio solicitante: o encerramento (painel ou GitHub) aparece aqui. */
 	@GetMapping("/support/requests/mine")
-	List<SupportRequestView> mine(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	List<SupportRequestView> mine(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestParam(defaultValue = "20") int limit) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return supportService.mine(user.id().value(), limit).stream()
 			.map(SupportRequestView::from)
 			.toList();
@@ -78,12 +83,11 @@ class SupportController {
 
 	/** Fila do painel central: filtros por categoria e status (apenas administradores). */
 	@GetMapping("/admin/support")
-	List<SupportAdminView> list(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	List<SupportAdminView> list(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestParam(required = false) SupportCategory category,
 			@RequestParam(required = false) SupportStatus status,
 			@RequestParam(defaultValue = "50") int limit) {
-		adminGuard.requireAdmin(currentUserResolver.resolve(userId, sessionToken));
+		moderatorGuard.requireModerator(currentUserResolver.resolve(sessionToken));
 		return supportService.list(category, status, limit).stream()
 			.map(SupportAdminView::from)
 			.toList();
@@ -91,30 +95,36 @@ class SupportController {
 
 	/** Triagem: muda status e/ou categoria de um ticket (apenas administradores). */
 	@PatchMapping("/admin/support/{id}")
-	SupportAdminView update(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	SupportAdminView update(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String id, @RequestBody UpdateSupportRequest request) {
-		adminGuard.requireAdmin(currentUserResolver.resolve(userId, sessionToken));
+		moderatorGuard.requireModerator(currentUserResolver.resolve(sessionToken));
 		return SupportAdminView.from(supportService.update(id, request.status(), request.category()));
 	}
 
 	/** Resposta oficial ao solicitante: grava, envia por e-mail e notifica no app. */
 	@PostMapping("/admin/support/{id}/reply")
-	SupportAdminView reply(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	SupportAdminView reply(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String id, @RequestBody ReplySupportRequest request) {
-		CurrentUser admin = currentUserResolver.resolve(userId, sessionToken);
-		adminGuard.requireAdmin(admin);
+		CurrentUser admin = currentUserResolver.resolve(sessionToken);
+		moderatorGuard.requireModerator(admin);
 		return SupportAdminView.from(supportService.reply(id, admin.id().value(), request.message()));
+	}
+
+	/** Conversa do ticket: respostas do painel e comentários trazidos da issue do GitHub. */
+	@GetMapping("/admin/support/{id}/messages")
+	List<SupportMessageView> messages(
+			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+			@PathVariable String id) {
+		moderatorGuard.requireModerator(currentUserResolver.resolve(sessionToken));
+		return supportThread.thread(id).stream().map(SupportMessageView::from).toList();
 	}
 
 	/**
 	 * Estado do espelho no GitHub para o painel. Nunca devolve token nem segredo — só se existem.
 	 */
 	@GetMapping("/admin/support/github")
-	SupportGithubSettingsView githubSettings(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		adminGuard.requireAdmin(currentUserResolver.resolve(userId, sessionToken));
+	SupportGithubSettingsView githubSettings(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		adminGuard.requireAdmin(currentUserResolver.resolve(sessionToken));
 		return githubView();
 	}
 
@@ -124,10 +134,9 @@ class SupportController {
 	 */
 	@PutMapping("/admin/support/github")
 	SupportGithubSettingsView updateGithubSettings(
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody UpdateGithubSettings request) {
-		adminGuard.requireAdmin(currentUserResolver.resolve(userId, sessionToken));
+		adminGuard.requireAdmin(currentUserResolver.resolve(sessionToken));
 		githubConfig.update(request.token(), request.repo(), request.webhookSecret());
 		return githubView();
 	}
@@ -172,6 +181,14 @@ class SupportController {
 	}
 
 	/** Visão do painel: inclui a issue espelhada para o time abrir o item no GitHub. */
+	record SupportMessageView(String id, String direction, String authorName, String authorGithubLogin,
+			String body, String createdAt) {
+		static SupportMessageView from(com.socialcoisa.rede.support.domain.SupportMessage message) {
+			return new SupportMessageView(message.id(), message.direction().name(), message.authorName(),
+				message.authorGithubLogin(), message.body(), message.createdAt().toString());
+		}
+	}
+
 	record SupportAdminView(String id, String userId, String subject, String message, String contactEmail,
 			String imageUrl, String category, String status, String adminReply, String repliedBy,
 			String repliedAt, String createdAt, Integer githubIssueNumber, String githubIssueUrl) {

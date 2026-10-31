@@ -48,7 +48,14 @@ public class ProfileExtensionService implements ManageProfileExtensionUseCase {
 	public List<ExperienceView> getExperiencesOf(String username) {
 		var profile = profiles.findByUsername(username == null ? "" : username.trim())
 			.orElseThrow(() -> new ApiException(404, "PROFILE_NOT_FOUND", "Perfil não encontrado."));
-		return repository.findExperiencesByUserId(profile.id()).stream()
+		return publicExperiences(profile.id());
+	}
+
+	/** Same public order, by account id (the professional page has no social @ to look up). */
+	@Override
+	@Transactional(readOnly = true)
+	public List<ExperienceView> publicExperiences(String userId) {
+		return repository.findExperiencesByUserId(userId).stream()
 			.sorted(java.util.Comparator.comparing(Experience::startDate,
 				java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder())))
 			.map(this::toExperienceView)
@@ -150,7 +157,7 @@ public class ProfileExtensionService implements ManageProfileExtensionUseCase {
 				"Você pode ter no máximo " + MAX_ENTRIES_PER_KIND + " certificações no perfil.");
 		}
 		Certification certification = Certification.create(userId, name, issuer, description, issueDate, expirationDate,
-			credentialUrl, clock.instant());
+			com.socialcoisa.rede.shared.web.SafeUrl.requireHttpUrl(credentialUrl, "credencial"), clock.instant());
 		return toCertificationView(repository.saveCertification(certification));
 	}
 
@@ -161,7 +168,8 @@ public class ProfileExtensionService implements ManageProfileExtensionUseCase {
 		Certification certification = repository.findCertificationById(certificationId)
 			.filter(c -> c.userId().equals(userId))
 			.orElseThrow(() -> new ApiException(404, "CERTIFICATION_NOT_FOUND", "Certificacao nao encontrada."));
-		certification.update(name, issuer, description, issueDate, expirationDate, credentialUrl, clock.instant());
+		certification.update(name, issuer, description, issueDate, expirationDate,
+			com.socialcoisa.rede.shared.web.SafeUrl.requireHttpUrl(credentialUrl, "credencial"), clock.instant());
 		return toCertificationView(repository.saveCertification(certification));
 	}
 

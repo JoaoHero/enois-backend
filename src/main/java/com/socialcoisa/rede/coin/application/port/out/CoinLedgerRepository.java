@@ -2,9 +2,11 @@ package com.socialcoisa.rede.coin.application.port.out;
 
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
 
 import com.socialcoisa.rede.coin.domain.CoinAccount;
 import com.socialcoisa.rede.coin.domain.CoinEntry;
+import com.socialcoisa.rede.coin.domain.CoinEntryPage;
 
 public interface CoinLedgerRepository {
 
@@ -21,7 +23,12 @@ public interface CoinLedgerRepository {
 
 	boolean existsByKindAndRefId(com.socialcoisa.rede.coin.domain.CoinEntry.Kind kind, String refId);
 
+	/** Refs of one account's entries of a kind (one query: the shop marks everything a person bought). */
+	List<String> refIdsOf(String accountId, com.socialcoisa.rede.coin.domain.CoinEntry.Kind kind);
+
 	List<CoinEntry> recentEntries(String accountId, int limit);
+
+	CoinEntryPage entryPage(String accountId, int page, int size, Instant from, Instant to);
 
 	/** Total transferido por uma conta num dia (para o teto de contas novas). */
 	long transferredOn(String accountId, java.time.Instant startOfDay, java.time.Instant endOfDay);
@@ -36,9 +43,18 @@ public interface CoinLedgerRepository {
 
 	java.util.List<CoinAccount> allAccounts();
 
+	/** Soma de todos os saldos snapshot — a conferência do supply fechado. */
+	long totalBalance();
+
 	/** O LEDGER é a verdade: a soma dos lançamentos reconstrói o saldo da conta. */
 	long balanceFromLedger(String accountId);
 
 	/** Recompensas (kind=REWARD) com refId começando com o prefixo — tetos mensais do earned. */
 	long countRewardsByRefPrefix(String prefix);
+
+	/**
+	 * Soma dos lançamentos de um tipo na janela — é daqui que sai o uso real da moeda
+	 * (escrow de marketplace/serviços, transferências P2P) e a emissão automática.
+	 */
+	long sumAmountByKindBetween(com.socialcoisa.rede.coin.domain.CoinEntry.Kind kind, Instant from, Instant to);
 }

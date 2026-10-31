@@ -35,11 +35,15 @@ class ReportController {
 	private final ReportRepository reports;
 	private final ModerationRemovePostUseCase removePost;
 	private final com.socialcoisa.rede.moderation.application.ModeratorService moderators;
+	private final com.socialcoisa.rede.moderation.adapters.out.persistence.ReportE2eKeyStore reportE2eKeys;
+	private final com.socialcoisa.rede.identity.application.port.out.AuthSessionRepository sessions;
 
 	ReportController(ModerationService moderationService, IdempotencyApplicationService idempotency,
 			CurrentUserResolver currentUserResolver, AdminGuard adminGuard, ReportRepository reports,
 			ModerationRemovePostUseCase removePost,
-			com.socialcoisa.rede.moderation.application.ModeratorService moderators) {
+			com.socialcoisa.rede.moderation.application.ModeratorService moderators,
+			com.socialcoisa.rede.moderation.adapters.out.persistence.ReportE2eKeyStore reportE2eKeys,
+			com.socialcoisa.rede.identity.application.port.out.AuthSessionRepository sessions) {
 		this.moderationService = moderationService;
 		this.idempotency = idempotency;
 		this.currentUserResolver = currentUserResolver;
@@ -47,33 +51,49 @@ class ReportController {
 		this.reports = reports;
 		this.removePost = removePost;
 		this.moderators = moderators;
+		this.reportE2eKeys = reportE2eKeys;
+		this.sessions = sessions;
 	}
 
 	@PostMapping("/reports")
-	ResponseEntity<String> report(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken,
+	ResponseEntity<String> report(@RequestHeader("X-Session-Token") String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@RequestBody CreateReportRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		String hash = idempotency.hash(request);
 		return idempotency.execute(user.id(), "POST", "/api/reports", idempotencyKey, hash,
-			() -> new CommandResponse(201, ReportView.from(moderationService.report(user.id().value(),
-				request.targetType(), request.targetId(), request.reason(), request.description()))));
+			() -> {
+				var report = moderationService.report(user.id().value(),
+					request.targetType(), request.targetId(), request.reason(), request.description());
+				if (request.e2eConversationKey() != null && !request.e2eConversationKey().isBlank()
+						&& request.e2eConversationKey().length() <= 8192) {
+					reportE2eKeys.save(report.id(), request.e2eConversationKey());
+				}
+				return new CommandResponse(201, ReportView.from(report));
+			});
 	}
 
 	/** Denuncias do proprio usuario (acompanhamento; sem dados de terceiros nem triagem interna). */
 	@GetMapping("/reports/mine")
-	List<ReporterReportView> mine(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	List<ReporterReportView> mine(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return moderationService.reportsOf(user.id().value(), 100).stream().map(ReporterReportView::from).toList();
 	}
 
+	/** Chave E2E anexada a uma denuncia de mensagem (moderador decifra no browser). */
+	@GetMapping("/admin/reports/{reportId}/e2e-key")
+	java.util.Map<String, String> reportE2eKey(@RequestHeader("X-Session-Token") String sessionToken,
+			@PathVariable String reportId) {
+		adminGuard.requireAdmin(currentUserResolver.resolve(sessionToken));
+		return reportE2eKeys.findByReportId(reportId)
+			.map(key -> java.util.Map.of("conversationKey", key))
+			.orElse(java.util.Map.of());
+	}
+
 	@GetMapping("/admin/reports")
-	List<ReportView> listPending(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken,
+	List<ReportView> listPending(@RequestHeader("X-Session-Token") String sessionToken,
 			@RequestParam(defaultValue = "20") int limit) {
-		adminGuard.requireAdmin(currentUserResolver.resolve(userId, sessionToken));
+		adminGuard.requireAdmin(currentUserResolver.resolve(sessionToken));
 		return moderationService.listPending(limit).stream()
 			.map(ReportView::from)
 			.toList();
@@ -81,9 +101,8 @@ class ReportController {
 
 	/** Retrato completo de uma denuncia para o painel de revisão aberto pelo e-mail. */
 	@GetMapping("/admin/reports/{reportId}")
-	Map<String, Object> review(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String reportId) {
-		adminGuard.requireAdmin(currentUserResolver.resolve(userId, sessionToken));
+	Map<String, Object> review(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String reportId) {
+		adminGuard.requireAdmin(currentUserResolver.resolve(sessionToken));
 		var review = moderationService.review(reportId);
 		return Map.of(
 			"report", ReportView.from(review.report()),
@@ -101,11 +120,10 @@ class ReportController {
 	 */
 	@GetMapping("/moderation/posts/suspicious")
 	List<SuspiciousPostView> suspiciousPosts(
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestParam(defaultValue = "30") int minScore,
 			@RequestParam(defaultValue = "50") int limit) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		requireModerator(user);
 		return reports.findPendingPostsByPreTriageScore(Math.max(0, minScore), Math.min(200, Math.max(1, limit)))
 			.stream()
@@ -118,10 +136,9 @@ class ReportController {
 	/** Exclusão (soft delete com auditoria) dos posts suspeitos selecionados. */
 	@PostMapping("/moderation/posts/bulk-delete")
 	BulkDeletePostsResult bulkDeleteSuspiciousPosts(
-			@RequestHeader(value = "X-User-Id", required = false) String userId,
 			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody BulkDeleteSuspiciousRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		requireModerator(user);
 		if (request == null || request.postIds() == null || request.postIds().isEmpty()) {
 			throw new com.socialcoisa.rede.shared.web.ApiException(400, "NO_POSTS_SELECTED",
@@ -148,36 +165,31 @@ class ReportController {
 	}
 
 	@PostMapping("/admin/reports/{reportId}/penalize")
-	ResponseEntity<String> penalize(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String reportId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	ResponseEntity<String> penalize(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String reportId) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		adminGuard.requireAdmin(user);
 		return ResponseEntity.ok(ReportView.from(moderationService.penalize(reportId, user.id().value())).toString());
 	}
 
 	@PostMapping("/admin/reports/{reportId}/warn")
-	ResponseEntity<String> warn(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String reportId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	ResponseEntity<String> warn(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String reportId) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		adminGuard.requireAdmin(user);
 		return ResponseEntity.ok(ReportView.from(moderationService.warn(reportId, user.id().value())).toString());
 	}
 
 	@PostMapping("/admin/reports/{reportId}/ban")
-	ResponseEntity<String> ban(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String reportId,
-			com.socialcoisa.rede.identity.application.port.out.AuthSessionRepository sessions) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	ResponseEntity<String> ban(@RequestHeader("X-Session-Token") String sessionToken, @PathVariable String reportId) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		adminGuard.requireAdmin(user);
 		return ResponseEntity.ok(ReportView.from(moderationService.ban(reportId, user.id().value(), sessions)).toString());
 	}
 
 	@PostMapping("/admin/reports/{reportId}/approve")
-	ResponseEntity<String> approve(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken,
+	ResponseEntity<String> approve(@RequestHeader("X-Session-Token") String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String reportId, @RequestBody ReviewRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		adminGuard.requireAdmin(user);
 		String hash = idempotency.hash(Map.of("reportId", reportId, "note", request.note() == null ? "" : request.note()));
 		return idempotency.execute(user.id(), "POST", "/api/admin/reports/{reportId}/approve", idempotencyKey, hash,
@@ -186,11 +198,10 @@ class ReportController {
 	}
 
 	@PostMapping("/admin/reports/{reportId}/dismiss")
-	ResponseEntity<String> dismiss(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader("X-Session-Token") String sessionToken,
+	ResponseEntity<String> dismiss(@RequestHeader("X-Session-Token") String sessionToken,
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@PathVariable String reportId, @RequestBody ReviewRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		adminGuard.requireAdmin(user);
 		String hash = idempotency.hash(Map.of("reportId", reportId, "note", request.note() == null ? "" : request.note()));
 		return idempotency.execute(user.id(), "POST", "/api/admin/reports/{reportId}/dismiss", idempotencyKey, hash,
@@ -198,7 +209,8 @@ class ReportController {
 				moderationService.dismiss(reportId, user.id().value(), request.note()))));
 	}
 
-	record CreateReportRequest(TargetType targetType, String targetId, ReportReason reason, String description) {
+	record CreateReportRequest(TargetType targetType, String targetId, ReportReason reason, String description,
+			String e2eConversationKey) {
 	}
 
 	record SuspiciousPostView(String postId, String reportId, int score, String reason, String signals) {

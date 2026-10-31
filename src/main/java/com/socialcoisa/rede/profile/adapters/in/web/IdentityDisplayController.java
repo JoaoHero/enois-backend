@@ -29,18 +29,16 @@ class IdentityDisplayController {
 	}
 
 	@PutMapping("/me/badges")
-	UserProfileView updateBadges(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	UserProfileView updateBadges(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody UpdateBadgesRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return UserProfileView.from(service.updateBadges(user.id().value(), request.badges()));
 	}
 
 	@PutMapping("/me/identity")
-	UserProfileView update(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	UserProfileView update(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody UpdateIdentityRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return UserProfileView.from(service.update(user.id().value(), request.nickname(), request.socialName(),
 			request.pronouns()));
 	}

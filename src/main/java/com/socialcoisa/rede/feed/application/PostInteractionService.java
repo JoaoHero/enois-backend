@@ -25,6 +25,9 @@ import com.socialcoisa.rede.feed.domain.CommentStatus;
 import com.socialcoisa.rede.feed.domain.Post;
 import com.socialcoisa.rede.feed.domain.PostId;
 import com.socialcoisa.rede.notifications.application.NotificationService;
+import com.socialcoisa.rede.profile.application.ContributorTagView;
+import com.socialcoisa.rede.profile.application.NameStyleView;
+import com.socialcoisa.rede.profile.domain.UserProfile;
 import com.socialcoisa.rede.shared.blocks.BlockedUsersReader;
 import com.socialcoisa.rede.shared.security.BehavioralTimingGuard;
 import com.socialcoisa.rede.shared.security.NewAccountCooldown;
@@ -48,6 +51,7 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 	private final Clock clock;
 	private final NotificationService notificationService;
 	private final com.socialcoisa.rede.profile.application.port.out.UserProfileRepository userProfileRepository;
+	private final com.socialcoisa.rede.contributions.application.port.out.UserSealRepository userSeals;
 	private final BlockedUsersReader blockedUsersReader;
 	private final com.socialcoisa.rede.media.application.port.in.ValidateMediaOwnershipUseCase validateMediaOwnership;
 	private final com.socialcoisa.rede.shared.sanctions.SanctionGate sanctionGate;
@@ -66,6 +70,7 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 			CursorCodec cursorCodec, Clock clock,
 			NotificationService notificationService,
 			com.socialcoisa.rede.profile.application.port.out.UserProfileRepository userProfileRepository,
+			com.socialcoisa.rede.contributions.application.port.out.UserSealRepository userSeals,
 			BlockedUsersReader blockedUsersReader,
 			com.socialcoisa.rede.media.application.port.in.ValidateMediaOwnershipUseCase validateMediaOwnership,
 			com.socialcoisa.rede.shared.sanctions.SanctionGate sanctionGate,
@@ -84,6 +89,7 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 		this.clock = clock;
 		this.notificationService = notificationService;
 		this.userProfileRepository = userProfileRepository;
+		this.userSeals = userSeals;
 		this.blockedUsersReader = blockedUsersReader;
 		this.validateMediaOwnership = validateMediaOwnership;
 		this.sanctionGate = sanctionGate;
@@ -120,12 +126,17 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 			+ "\",\"commentId\":\"" + saved.id() + "\",\"authorId\":\"" + command.authorId().value() + "\"}");
 		notifyCommentReply(parentCommentId, post, command.authorId().value());
 		notifyMentions(command.mentionedUserIds(), command.authorId().value(), post.id().value());
+		coins.recordPresence(command.authorId().value());
 		var profile = userProfileRepository.findById(command.authorId().value()).orElse(null);
 		return CommentView.from(saved,
 			profile != null ? profile.displayWithNickname() : null,
 			profile != null ? profile.username() : null,
 			profile != null ? profile.avatar() : null,
-			profile != null ? profile.allBadges() : java.util.List.of()).withAvatarFrame(profile != null ? profile.avatarFrame() : null);
+			profile != null ? profile.allBadges() : java.util.List.of())
+			.withAvatarFrame(profile != null ? profile.avatarFrame() : null)
+			.withAuthorStyle(NameStyleView.from(profile))
+			.withContributor(userSeals.hasActiveSeal(command.authorId().value())
+				? ContributorTagView.from(profile) : null);
 	}
 
 	/**
@@ -164,7 +175,7 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 	public CommentsPage getComments(GetCommentsQuery query) {
 		int limit = normalizeLimit(query.limit());
 		Instant before = query.before().orElse(DEFAULT_BEFORE);
-		activePost(query.postId());
+		String acceptedCommentId = activePost(query.postId()).acceptedCommentId();
 		Set<String> hidden = query.viewerId()
 			.map(viewer -> blockedUsersReader.hiddenIdsFor(viewer.value()))
 			.orElse(Set.of());
@@ -175,15 +186,28 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 		var allComments = new java.util.ArrayList<com.socialcoisa.rede.feed.domain.Comment>();
 		pinned.ifPresent(allComments::add);
 		allComments.addAll(fetched);
+		Set<String> commentAuthorIds = allComments.stream()
+			.map(c -> c.authorId().value())
+			.filter(id -> !hidden.contains(id))
+			.collect(java.util.stream.Collectors.toSet());
+		Set<String> contributorIds = userSeals.findActiveUserIds(commentAuthorIds);
+		// One query for the page's authors instead of one per comment.
+		var authors = userProfileRepository.findAllByIds(commentAuthorIds).stream()
+			.collect(java.util.stream.Collectors.toMap(UserProfile::id, java.util.function.Function.identity()));
 		var comments = allComments.stream()
 			.filter(c -> !hidden.contains(c.authorId().value()))
 			.map(c -> {
-				var p = userProfileRepository.findById(c.authorId().value()).orElse(null);
+				var p = authors.get(c.authorId().value());
 				return CommentView.from(c,
 					p != null ? p.displayWithNickname() : null,
 					p != null ? p.username() : null,
 					p != null ? p.avatar() : null,
-					p != null ? p.allBadges() : java.util.List.of()).withAvatarFrame(p != null ? p.avatarFrame() : null);
+					p != null ? p.allBadges() : java.util.List.of())
+					.withAvatarFrame(p != null ? p.avatarFrame() : null)
+					.withAuthorStyle(NameStyleView.from(p))
+					.withContributor(contributorIds.contains(c.authorId().value())
+						? ContributorTagView.from(p) : null)
+					.withAccepted(c.id().equals(acceptedCommentId));
 			})
 			.toList();
 		// Reacao do proprio leitor: sem isso o front nao sabe que ele ja reagiu e a reacao
@@ -192,12 +216,14 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 			.map(viewer -> postInteractionRepository.findCommentReactionsByUser(viewer,
 				comments.stream().map(CommentView::id).toList()))
 			.orElse(java.util.Map.of());
-		var reactionCounts = postInteractionRepository.countCommentReactions(
-			comments.stream().map(CommentView::id).toList());
+		var reactionSummaries = postInteractionRepository.countCommentReactionsByType(
+			comments.stream().map(CommentView::id).toList(), hidden);
 		var withReactions = comments.stream()
 			.map(cv -> {
 				var r = reactions.containsKey(cv.id()) ? cv.withCurrentUserReaction(reactions.get(cv.id())) : cv;
-				return r.withReactionCount(reactionCounts.getOrDefault(r.id(), 0));
+				var summary = reactionSummaries.getOrDefault(r.id(), java.util.Map.of());
+				int total = summary.values().stream().mapToInt(Long::intValue).sum();
+				return r.withReactionCount(total).withReactionSummary(summary);
 			})
 			.toList();
 		// Cursor pela pagina do banco: comentario escondido nao pode encerrar a paginacao.
@@ -223,7 +249,7 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 				postRepository.save(post);
 				outboxEventRepository.append("PostReacted", post.id().value(), "{\"postId\":\"" + post.id().value()
 					+ "\",\"authorId\":\"" + command.userId().value() + "\"}");
-				rewardReaction(post.authorId().value(), command.userId().value());
+				coins.recordPresence(command.userId().value());
 			}
 			case REMOVED -> {
 				post.removeReaction();
@@ -241,33 +267,6 @@ public class PostInteractionService implements CommentOnPostUseCase, GetComments
 			case REMOVED -> "REACTION_REMOVED";
 		};
 		return new PostActionResult(post.id().value(), status, post.counters());
-	}
-
-	/**
-	 * Recompensa de reações recebidas (plano C2): 1 faísca a cada 10 reações em conteúdo
-	 * do autor (as próprias não contam), teto de 50/dia. Falha aqui NUNCA derruba a
-	 * reação — a moeda é um efeito colateral, não o caminho crítico.
-	 */
-	private void rewardReaction(String authorId, String reactorId) {
-		try {
-			if (authorId.equals(reactorId)) {
-				return;
-			}
-			long received = postInteractionRepository.countReactionsReceived(authorId);
-			if (received <= 0 || received % 10 != 0) {
-				return;
-			}
-			var startOfDay = java.time.LocalDate.now(clock).atStartOfDay().toInstant(java.time.ZoneOffset.UTC);
-			if (postInteractionRepository.countReactionsReceivedSince(authorId, startOfDay) / 10 >= 50) {
-				return; // teto diário
-			}
-			String ref = "reacoes:" + authorId + ":" + received / 10;
-			if (!coins.hasReward(ref)) {
-				coins.reward(authorId, com.socialcoisa.rede.coin.application.CoinService.FAIS(1), ref, "Reações recebidas (" + received + " no total)");
-			}
-		} catch (RuntimeException ignored) {
-			// a reação já está gravada; a faísca não pode ser motivo de erro para o usuário
-		}
 	}
 
 	@Override

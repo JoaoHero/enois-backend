@@ -1,7 +1,6 @@
 package com.socialcoisa.rede.communityprojects.adapters.out.persistence;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 
 import org.springframework.data.domain.PageRequest;
@@ -61,7 +60,7 @@ class CommunityProjectPersistenceAdapter implements CommunityProjectRepository {
 
 	@Override
 	public SearchPage search(String query, String order, int limit, int offset) {
-		String pattern = pattern(query);
+		String pattern = com.socialcoisa.rede.shared.web.LikePattern.contains(query);
 		int size = Math.max(1, limit) + 1; // item extra responde "tem próxima?" sem count
 		PageRequest page = PageRequest.of(Math.max(0, offset) / size, size);
 		List<CommunityProjectJpaEntity> rows = "title".equalsIgnoreCase(order)
@@ -80,14 +79,4 @@ class CommunityProjectPersistenceAdapter implements CommunityProjectRepository {
 		jpaRepository.deleteById(id);
 	}
 
-	private static String pattern(String query) {
-		if (query == null || query.isBlank()) {
-			return null;
-		}
-		String term = query.trim().toLowerCase(Locale.ROOT);
-		if (term.length() > 80) {
-			term = term.substring(0, 80);
-		}
-		return "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
-	}
 }

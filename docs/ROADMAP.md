@@ -15,9 +15,26 @@ dependência externa, está marcado como **BLOQUEADO** (não é código meu).
    *O que ainda não é:* o v1 é o alias do v0, não uma cópia congelada — quando o v0 muda, o v1
    muda junto. Congelar exige DTO próprio por endpoint (e uma política de depreciação do v0).
    É decisão de produto se vale a pena manter as duas coisas; o que já está pronto é o mecanismo.
-2. **OpenAPI validado no CI** — o springdoc está plugado (`springdoc.api-docs.path=/api/openapi.json`,
-   ligado por `SPRINGDOC_ENABLED`, desligado por padrão), mas a **esteira só constrói a imagem**:
-   não há passo que gere e compare o OpenAPI. Falta: o passo (o workflow é do raposo).
+2. **OpenAPI — não há documento: o contrato é o índice `/api/v1` (conferido em 2026-10-25).**
+   O plano dizia que o springdoc estava plugado (`springdoc.api-docs.path=/api/openapi.json`, ligado
+   por `SPRINGDOC_ENABLED`, desligado por padrão) e que só faltava o passo da esteira.
+   **Conferido no código: o springdoc não está no `pom.xml`** — saiu no lote de segurança
+   (`302b7690`): incompatível com o Boot 4 e a UI dele expunha a superfície inteira da API. Não
+   existe `/openapi.json`; o caminho responde como qualquer rota desconhecida (200 sem corpo, a
+   resposta padrão de "caminho fora da superfície"). O que existe e é verdade: o índice
+   `GET /api/v1`, montado a partir do roteador de verdade (não diverge das rotas), e a página
+   `/developers` do app, que é o contrato legível.
+   *Entregue neste ciclo:* o backend parou de mentir no comentário (`OperationalController` dizia
+   que a documentação era gerada pelo springdoc "habilitada com `SPRINGDOC_ENABLED`") e o índice
+   passou a dizer em texto que não há documento OpenAPI e onde está o contrato; no front, o
+   `specs/openapi.json` deixou de ser um esqueleto disfarçado (agora se declara esqueleto e aponta
+   para o contrato real), os scripts de fetch e de geração passaram a recusar o esqueleto com
+   mensagem que diz o que fazer, o gerador foi consertado (importava `generate` do `@orval/core`,
+   que na versão travada do lock — 7.21.0 — não exporta: `generate is not a function`), e a
+   matriz documentada passou a ser conferida por script contra o índice real
+   (`npm run check:api-matrix`), antes conta manual de auditoria.
+   *Continua aberto:* ter um OpenAPI de verdade exige um documento gerado e revisado (escrever à
+   mão não é caminho) e um passo na esteira — que é do raposo.
 3. **Registro de aplicações de terceiros (OAuth + PKCE, escopos, revogação)** — não existe
    (nenhuma tabela/porta de `oauth_client`). Exige decisão de produto/segurança antes.
 4. **CI de segurança** — hoje a esteira não roda teste, lint nem secret-scanning

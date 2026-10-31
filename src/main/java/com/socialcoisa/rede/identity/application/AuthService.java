@@ -40,6 +40,7 @@ import com.socialcoisa.rede.identity.domain.EmailVerificationToken;
 import com.socialcoisa.rede.identity.domain.PasswordResetToken;
 import com.socialcoisa.rede.identity.domain.PendingSignup;
 import com.socialcoisa.rede.identity.domain.TwoFactorChallenge;
+import com.socialcoisa.rede.identity.domain.UsernameSlug;
 import com.socialcoisa.rede.profile.application.port.out.UserProfileRepository;
 import com.socialcoisa.rede.profile.domain.UserProfile;
 import com.socialcoisa.rede.shared.web.ApiException;
@@ -53,6 +54,9 @@ public class AuthService implements SignupUseCase, LoginUseCase, LogoutUseCase, 
 
 
 	private static final Duration RESET_TOKEN_TTL = Duration.ofHours(24);
+
+	private static final int MAX_PASSWORD_LENGTH = 128;
+	private static final java.util.Set<String> COMMON_PASSWORDS = loadCommonPasswords();
 
 	/** Validade do link de confirmacao de e-mail. */
 	private static final Duration VERIFICATION_TOKEN_TTL = Duration.ofHours(24);
@@ -78,6 +82,7 @@ public class AuthService implements SignupUseCase, LoginUseCase, LogoutUseCase, 
 
 	private final com.socialcoisa.rede.shared.sanctions.SanctionGateReader sanctionGate;
 	private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+	private final com.socialcoisa.rede.shared.security.IpRateLimiter rateLimiter;
 	private final SecureRandom secureRandom = new SecureRandom();
 
 	public AuthService(@Value("${rede.auth.access-token-ttl-minutes:60}") int accessTokenTtlMinutes,
@@ -90,7 +95,8 @@ public class AuthService implements SignupUseCase, LoginUseCase, LogoutUseCase, 
                        UserExternalIdentityRepository externalIdentityRepository,
                        PasswordHasher passwordHasher, EmailService emailService, Clock clock,
                        com.socialcoisa.rede.shared.sanctions.SanctionGateReader sanctionGate,
-                       org.springframework.jdbc.core.JdbcTemplate jdbc) {
+                       org.springframework.jdbc.core.JdbcTemplate jdbc,
+                       com.socialcoisa.rede.shared.security.IpRateLimiter rateLimiter) {
 		this.accessTokenTtl = Duration.ofMinutes(accessTokenTtlMinutes);
 		this.refreshTokenTtl = Duration.ofDays(refreshTokenTtlDays);
 		this.userProfileRepository = userProfileRepository;
@@ -106,6 +112,7 @@ public class AuthService implements SignupUseCase, LoginUseCase, LogoutUseCase, 
         this.clock = clock;
 		this.sanctionGate = sanctionGate;
 		this.jdbc = jdbc;
+		this.rateLimiter = rateLimiter;
 	}
 
 	@Override
@@ -114,8 +121,21 @@ public class AuthService implements SignupUseCase, LoginUseCase, LogoutUseCase, 
 		validateSignup(command);
 		LocalDate birthDate = parseBirthDate(command.birthDate());
 		String email = command.email().trim().toLowerCase(Locale.ROOT);
-		if (userProfileRepository.existsByEmail(email) || credentialRepository.existsByEmail(email)) {
-			throw new ApiException(409, "EMAIL_ALREADY_REGISTERED", "Email ja cadastrado.");
+		var existing = userProfileRepository.findByEmail(email)
+			.or(() -> userProfileRepository.findByEmail(canonicalEmail(email)));
+		if (existing.isPresent() || credentialRepository.existsByEmail(email)) {
+			// Same response as a new signup, so the endpoint does not reveal registered addresses.
+			// The account owner gets a notice instead of a verification link. The discarded hash
+			// keeps the latency of both paths alike.
+			passwordHasher.hash(command.password());
+			// Capped per account so repeated signups cannot flood the owner's inbox.
+			boolean sent = existing
+				.filter(profile -> rateLimiter.tryAcquire(com.socialcoisa.rede.shared.security.IpRateLimiter.EMAIL,
+					"signup-notice:" + profile.id()))
+				.map(profile -> emailService.sendSignupAttemptNotice(profile.email(), profile.name()))
+				.orElse(true);
+			LOG.info("auth_signup_existing_account emailSent={}", sent);
+			return new SignupResult(email, true, sent);
 		}
 		Instant now = clock.instant();
 		// Duas etapas: NADA de conta (users/credentials) nasce aqui. Guardamos o cadastro com o
@@ -173,12 +193,15 @@ public class AuthService implements SignupUseCase, LoginUseCase, LogoutUseCase, 
 		if (found.isEmpty()) {
 			// PBKDF2 fictício: sem isso, e-mail inexistente respondia em ~33 ms e existente em
 			// ~650 ms, permitindo enumerar contas pela latência (E-14/EN-12).
-			passwordHasher.matches(command.password(), dummyPasswordHash());
 			// Cadastro de duas etapas: a conta ainda NAO existe, mas a pessoa ja se cadastrou e a
 			// senha dela esta certa. Responder "senha invalida" seria mentira (e a pessoa nao
-			// entenderia o que fazer) — o certo e pedir a confirmacao do e-mail.
-			var pending = pendingSignups.findByEmail(email);
-			if (pending.isPresent() && !pending.get().isExpired(clock.instant())) {
+			// entenderia o que fazer) — o certo e pedir a confirmacao do e-mail. Only with the right
+			// password: otherwise the answer would reveal which addresses have a pending signup.
+			var pending = pendingSignups.findByEmail(email)
+				.filter(signup -> !signup.isExpired(clock.instant()));
+			boolean pendingPasswordMatches = passwordHasher.matches(command.password(),
+				pending.map(PendingSignup::passwordHash).orElseGet(this::dummyPasswordHash));
+			if (pending.isPresent() && pendingPasswordMatches) {
 				LOG.warn("auth_login_failed reason=email_not_verified");
 				throw new ApiException(403, "EMAIL_NOT_VERIFIED",
 					"Confirme o e-mail que enviamos para ativar a conta.");
@@ -190,6 +213,16 @@ public class AuthService implements SignupUseCase, LoginUseCase, LogoutUseCase, 
 		if (!passwordHasher.matches(command.password(), credential.passwordHash())) {
 			LOG.warn("auth_login_failed reason=invalid_password");
 			throw new ApiException(401, "INVALID_CREDENTIALS", "Email ou senha invalidos.");
+		}
+		if (credential.resetNeeded()) {
+			LOG.info("auth_login_reset_needed userId={}", credential.userId());
+			String rawToken = newResetToken();
+			Instant now = clock.instant();
+			passwordResetTokenRepository.deleteByUserId(credential.userId());
+			passwordResetTokenRepository.save(
+				com.socialcoisa.rede.identity.domain.PasswordResetToken.create(
+					hashToken(rawToken), credential.userId(), now.plus(RESET_TOKEN_TTL), now));
+			return LoginResult.passwordExpired(rawToken);
 		}
 		UserProfile profile = userProfileRepository.findById(credential.userId())
 			.orElseThrow(() -> new ApiException(404, "USER_NOT_FOUND", "Usuario nao encontrado."));
@@ -328,9 +361,14 @@ public class AuthService implements SignupUseCase, LoginUseCase, LogoutUseCase, 
 
 	@Override
 	@Transactional
-	public void logout(String token) {
+	public void logout(String token, String refreshToken) {
 		if (StringUtils.hasText(token)) {
 			authSessionRepository.revoke(token.trim(), clock.instant());
+		}
+		// An expired access cookie is gone from the browser while the refresh cookie still is:
+		// without this the session could still be refreshed after "logging out".
+		if (StringUtils.hasText(refreshToken)) {
+			authSessionRepository.revokeByRefreshToken(refreshToken.trim(), clock.instant());
 		}
 	}
 
@@ -362,6 +400,13 @@ public class AuthService implements SignupUseCase, LoginUseCase, LogoutUseCase, 
 		}
 		String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
 		userProfileRepository.findByEmail(normalizedEmail).ifPresent(profile -> {
+			// Per-account cap on top of the per-IP one: requests spread over many IPs cannot flood
+			// one inbox. Silent, so the response stays neutral.
+			if (!rateLimiter.tryAcquire(com.socialcoisa.rede.shared.security.IpRateLimiter.PASSWORD,
+					"account:" + profile.id())) {
+				LOG.warn("auth_reset_throttled userId={}", profile.id());
+				return;
+			}
 			String rawToken = newResetToken();
 			Instant now = clock.instant();
 			// So o hash vai para o banco; o token em claro existe apenas no e-mail.
@@ -374,7 +419,7 @@ public class AuthService implements SignupUseCase, LoginUseCase, LogoutUseCase, 
 
 	@Override
 	@Transactional
-	public void reset(String token, String newPassword) {
+	public java.util.Optional<AuthResponse> reset(String token, String newPassword) {
 		if (!StringUtils.hasText(token)) {
 			throw new ApiException(400, "INVALID_TOKEN", "Token obrigatorio.");
 		}
@@ -382,17 +427,24 @@ public class AuthService implements SignupUseCase, LoginUseCase, LogoutUseCase, 
 		String tokenHash = hashToken(token.trim());
 		PasswordResetToken resetToken = passwordResetTokenRepository.findByToken(tokenHash)
 			.orElseThrow(() -> new ApiException(404, "INVALID_TOKEN", "Token invalido ou nao encontrado."));
-		if (resetToken.isExpired(clock.instant())) {
-			throw new ApiException(410, "TOKEN_EXPIRED", "Token de reset expirado.");
-		}
 		if (resetToken.isUsed()) {
 			throw new ApiException(409, "TOKEN_ALREADY_USED", "Token ja utilizado.");
 		}
+		if (resetToken.isExpired(clock.instant())) {
+			throw new ApiException(410, "TOKEN_EXPIRED", "Token de reset expirado.");
+		}
 		StoredCredential credential = credentialRepository.findByUserId(resetToken.userId())
 			.orElseThrow(() -> new ApiException(404, "USER_NOT_FOUND", "Usuario nao encontrado."));
+		boolean wasExpired = credential.resetNeeded();
 		credentialRepository.save(credential.userId(), credential.email(), passwordHasher.hash(newPassword));
 		passwordResetTokenRepository.markUsed(tokenHash);
 		authSessionRepository.revokeAllByUser(resetToken.userId(), clock.instant());
+		if (wasExpired) {
+			UserProfile profile = userProfileRepository.findById(resetToken.userId())
+				.orElseThrow(() -> new ApiException(404, "USER_NOT_FOUND", "Usuario nao encontrado."));
+			return java.util.Optional.of(createResponse(profile, null));
+		}
+		return java.util.Optional.empty();
 	}
 
 	@Override
@@ -466,7 +518,7 @@ public class AuthService implements SignupUseCase, LoginUseCase, LogoutUseCase, 
 		jdbc.update("delete from pending_email_changes where user_id = ?", userId);
 		emailService.sendHtmlEmail(oldEmail, "Seu e-mail foi alterado — Énóis",
 			"<p>O e-mail da sua conta no Énóis foi alterado para <b>"
-				+ org.springframework.web.util.HtmlUtils.htmlEscape(newEmail)
+				+ EmailService.escapeHtml(newEmail)
 				+ "</b>. Se não foi você, fale com o suporte imediatamente.</p>");
 	}
 
@@ -625,8 +677,29 @@ public class AuthService implements SignupUseCase, LoginUseCase, LogoutUseCase, 
 		return "verify_" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
 	}
 
+	/**
+	 * Canonical mailbox: no "+tag" and, for Gmail, no dots in the local part. Two accounts must not be
+	 * created for the same inbox.
+	 */
+	static String canonicalEmail(String email) {
+		int at = email.lastIndexOf('@');
+		if (at <= 0) {
+			return email;
+		}
+		String local = email.substring(0, at);
+		String domain = email.substring(at);
+		int plus = local.indexOf('+');
+		if (plus > 0) {
+			local = local.substring(0, plus);
+		}
+		if (domain.equals("@gmail.com") || domain.equals("@googlemail.com")) {
+			local = local.replace(".", "");
+		}
+		return local + domain;
+	}
+
 	private String uniqueUsername(String name, String email) {
-		String base = slug(StringUtils.hasText(name) ? name : email.substring(0, email.indexOf('@')));
+		String base = UsernameSlug.from(StringUtils.hasText(name) ? name : email.substring(0, email.indexOf('@')));
 		String candidate = base;
 		int suffix = 1;
 		while (userProfileRepository.existsByUsername(candidate)
@@ -636,12 +709,6 @@ public class AuthService implements SignupUseCase, LoginUseCase, LogoutUseCase, 
 		return candidate;
 	}
 
-	private String slug(String value) {
-		String slug = value.toLowerCase(Locale.ROOT)
-			.replaceAll("[^a-z0-9]+", "-")
-			.replaceAll("(^-|-$)", "");
-		return StringUtils.hasText(slug) ? slug : "user";
-	}
 
 	/** Hash do token de reset: so o hash e persistido, para nao guardar credencial em claro. */
 	private String hashToken(String rawToken) {
@@ -655,18 +722,32 @@ public class AuthService implements SignupUseCase, LoginUseCase, LogoutUseCase, 
 		}
 	}
 
-	/** Mínimo, máximo e uma pequena blocklist (E-39): senha longa demais também é abuso. */
-	private static void validatePasswordStrength(String password) {
+	/** Max length bounds the hashing cost; the blocklist is bundled, so no network call is made. */
+	static void validatePasswordStrength(String password) {
 		if (!StringUtils.hasText(password) || password.length() < 8) {
 			throw new ApiException(400, "WEAK_PASSWORD", "Senha deve ter pelo menos 8 caracteres.");
 		}
-		if (password.length() > 128) {
+		if (password.length() > MAX_PASSWORD_LENGTH) {
 			throw new ApiException(400, "WEAK_PASSWORD", "Senha deve ter no maximo 128 caracteres.");
 		}
-		String normalized = password.toLowerCase(Locale.ROOT);
-		if (java.util.Set.of("12345678", "123456789", "1234567890", "password", "senha123",
-				"qwerty123", "abc12345", "admin123", "enois123").contains(normalized)) {
+		if (COMMON_PASSWORDS.contains(password.toLowerCase(Locale.ROOT))) {
 			throw new ApiException(400, "WEAK_PASSWORD", "Escolha uma senha menos previsivel.");
+		}
+	}
+
+	private static java.util.Set<String> loadCommonPasswords() {
+		try (var in = AuthService.class.getResourceAsStream("/security/common-passwords.txt")) {
+			if (in == null) {
+				throw new IllegalStateException("security/common-passwords.txt missing from the classpath");
+			}
+			return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).lines()
+				.map(String::trim)
+				.filter(line -> !line.isEmpty() && !line.startsWith("#"))
+				.map(line -> line.toLowerCase(Locale.ROOT))
+				.collect(java.util.stream.Collectors.toUnmodifiableSet());
+		}
+		catch (java.io.IOException exception) {
+			throw new java.io.UncheckedIOException(exception);
 		}
 	}
 

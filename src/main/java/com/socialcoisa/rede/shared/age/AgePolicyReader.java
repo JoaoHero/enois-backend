@@ -17,6 +17,9 @@ public interface AgePolicyReader {
 	/** Usuário menor de 18 anos segundo a data declarada (calculada no backend). */
 	boolean isMinor(String userId);
 
+	/** The ids among {@code userIds} that belong to minors, read in one go. */
+	java.util.Set<String> minorIds(java.util.Collection<String> userIds);
+
 	/** Menor com autorização ativa de um responsável (supervisão parental em vigor). */
 	boolean parentalConsentActive(String userId);
 }

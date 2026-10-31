@@ -13,6 +13,8 @@ import com.socialcoisa.rede.shared.web.RequestObservabilityFilter;
 @Repository
 class AuthSessionPersistenceAdapter implements AuthSessionRepository {
 
+	private static final java.util.regex.Pattern STORED_HASH = java.util.regex.Pattern.compile("^[0-9a-f]{64}$");
+
 	private final SpringDataAuthSessionJpaRepository repository;
 
 	AuthSessionPersistenceAdapter(SpringDataAuthSessionJpaRepository repository) {
@@ -68,17 +70,32 @@ class AuthSessionPersistenceAdapter implements AuthSessionRepository {
 	 */
 	private Optional<AuthSessionJpaEntity> findSession(String token) {
 		Optional<AuthSessionJpaEntity> hashed = repository.findById(Hashes.sha256Hex(token));
-		return hashed.isPresent() ? hashed : repository.findById(token);
+		return hashed.isPresent() || looksLikeStoredHash(token) ? hashed : repository.findById(token);
 	}
 
 	private Optional<AuthSessionJpaEntity> findSessionByRefresh(String refreshToken) {
 		Optional<AuthSessionJpaEntity> hashed = repository.findByRefreshToken(Hashes.sha256Hex(refreshToken));
-		return hashed.isPresent() ? hashed : repository.findByRefreshToken(refreshToken);
+		return hashed.isPresent() || looksLikeStoredHash(refreshToken) ? hashed
+			: repository.findByRefreshToken(refreshToken);
+	}
+
+	/**
+	 * Issued tokens are base64url, never 64 lowercase hex: a value in that shape can only be a hash
+	 * copied from the table, and the raw fallback must not turn it back into a live session.
+	 */
+	private static boolean looksLikeStoredHash(String value) {
+		return STORED_HASH.matcher(value).matches();
 	}
 
 	@Override
 	public void revokeAllByUser(String userId, Instant revokedAt) {
 		repository.revokeAllByUser(userId, revokedAt);
+	}
+
+	@Override
+	public void revokeOthersByUser(String userId, String keepToken, Instant revokedAt) {
+		String keep = keepToken == null ? "" : keepToken.trim();
+		repository.revokeOthersByUser(userId, Hashes.sha256Hex(keep), keep, revokedAt);
 	}
 
 	@Override

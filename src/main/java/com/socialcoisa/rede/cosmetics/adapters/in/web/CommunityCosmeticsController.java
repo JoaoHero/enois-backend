@@ -44,51 +44,45 @@ class CommunityCosmeticsController {
 	}
 
 	@PostMapping("/drafts")
-	CosmeticView create(@RequestHeader(value = "X-User-Id", required = false) String userId,
-		@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	CosmeticView create(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 		@RequestBody CreateCosmeticRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return CosmeticView.from(cosmetics.createDraft(user.id().value(), request.kind(), request.name(),
 			request.description(), request.manifestJson(), request.license(), request.rightsConfirmed()));
 	}
 
 	@GetMapping("/mine")
-	List<CosmeticView> mine(@RequestHeader(value = "X-User-Id", required = false) String userId,
-		@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	List<CosmeticView> mine(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return cosmetics.mine(user.id().value()).stream().map(CosmeticView::from).toList();
 	}
 
 	@PatchMapping("/{id}")
-	CosmeticView update(@RequestHeader(value = "X-User-Id", required = false) String userId,
-		@RequestHeader(value = "X-Session-Token", required = false) String sessionToken, @PathVariable String id,
+	CosmeticView update(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken, @PathVariable String id,
 		@RequestBody UpdateCosmeticRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return CosmeticView.from(cosmetics.update(id, user.id().value(), request.name(), request.description(),
 			request.manifestJson(), request.license(), request.rightsConfirmed()));
 	}
 
 	@PostMapping("/{id}/submit")
-	Map<String, Object> submit(@RequestHeader(value = "X-User-Id", required = false) String userId,
-		@RequestHeader(value = "X-Session-Token", required = false) String sessionToken, @PathVariable String id) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	Map<String, Object> submit(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken, @PathVariable String id) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		CommunityCosmetic submitted = cosmetics.submit(id, user.id().value());
 		return Map.of("id", submitted.id(), "status", submitted.status().name());
 	}
 
 	@PostMapping("/{id}/report")
-	Map<String, Object> report(@RequestHeader(value = "X-User-Id", required = false) String userId,
-		@RequestHeader(value = "X-Session-Token", required = false) String sessionToken, @PathVariable String id) {
-		currentUserResolver.resolve(userId, sessionToken);
+	Map<String, Object> report(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken, @PathVariable String id) {
+		currentUserResolver.resolve(sessionToken);
 		cosmetics.report(id);
 		return Map.of("status", "REPORTED");
 	}
 
 	@PutMapping("/profile/name-style")
-	NameStyleView updateNameStyle(@RequestHeader(value = "X-User-Id", required = false) String userId,
-		@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	NameStyleView updateNameStyle(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 		@RequestBody NameStyleRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		var profile = cosmetics.updateNameStyle(user.id().value(), request.theme(), request.font(), request.color());
 		return new NameStyleView(profile.nameTheme(), profile.nameFont(), profile.nameColor());
 	}
@@ -101,7 +95,22 @@ class CommunityCosmeticsController {
 		Boolean rightsConfirmed) {
 	}
 
+	@PutMapping("/profile/contributor-tag")
+	ContributorTagView updateContributorTagColor(
+		@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+		@RequestBody ContributorTagRequest request) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
+		var profile = cosmetics.updateContributorTagColor(user.id().value(), request.color());
+		return new ContributorTagView(profile.contributorTagColor());
+	}
+
 	record NameStyleRequest(String theme, String font, String color) {
+	}
+
+	record ContributorTagRequest(String color) {
+	}
+
+	record ContributorTagView(String color) {
 	}
 
 	record NameStyleView(String theme, String font, String color) {

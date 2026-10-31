@@ -39,6 +39,11 @@ public final class TestDatabase {
 		require().update("update users set email_verified_at = null where id = ?", userId);
 	}
 
+	/** Conta anterior a exigencia da data de nascimento: o portao de idade barra a escrita dela. */
+	public static void clearBirthDate(String userId) {
+		require().update("update users set birth_date = null where id = ?", userId);
+	}
+
 	/** Liga um segundo fator sem passar pelo fluxo, para cenarios que so precisam do estado final. */
 	public static void enableTwoFactor(String userId, Instant at) {
 		require().update("update users set totp_enabled_at = ? where id = ?", at, userId);
@@ -95,6 +100,20 @@ public final class TestDatabase {
 	/** Define o dono de uma vaga inserida direto no banco. */
 	public static void setJobPostedBy(String jobId, String userId) {
 		require().update("update jobs set posted_by = ? where id = ?", userId, jobId);
+	}
+
+	/**
+	 * Insere uma vaga EXTERNA (agregada de uma plataforma) direto no banco. O diretório de
+	 * empresas junta as duas origens, e só a externa carrega a origem "externa".
+	 */
+	public static void insertExternalJob(String id, String title, String company, String location,
+			String url, Instant importedAt) {
+		require().update("delete from external_jobs where id = ?", id);
+		require().update("""
+				insert into external_jobs (id, platform, external_id, title, company, location, salary,
+					currency, url, imported_at, last_checked_at, external_status)
+				values (?, 'Plataforma Teste', ?, ?, ?, ?, null, 'BRL', ?, ?, ?, 'FOUND')""",
+			id, id + "-externo", title, company, location, url, importedAt, importedAt);
 	}
 
 	/** Insere uma candidatura direto no banco (para reproduzir uma candidatura orfa do dono). */

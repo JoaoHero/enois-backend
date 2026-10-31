@@ -1,6 +1,5 @@
 package com.socialcoisa.rede.communityprojects.application;
 
-import java.net.URI;
 import java.time.Clock;
 import java.util.List;
 import java.util.Locale;
@@ -201,27 +200,7 @@ public class CommunityProjectService {
 
 	/** Link de projeto/repositório: só http(s) público, nunca javascript/data/file. */
 	private static String safeUrl(String value) {
-		if (!StringUtils.hasText(value)) {
-			return null;
-		}
-		String trimmed = value.trim();
-		if (trimmed.length() > 500) {
-			throw new ApiException(400, "INVALID_URL", "O link é longo demais.");
-		}
-		try {
-			URI uri = URI.create(trimmed);
-			String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
-			if (!scheme.equals("http") && !scheme.equals("https")) {
-				throw new ApiException(400, "INVALID_URL", "O link precisa começar com http:// ou https://.");
-			}
-			if (!StringUtils.hasText(uri.getHost())) {
-				throw new ApiException(400, "INVALID_URL", "O link não tem um endereço válido.");
-			}
-			return uri.toString();
-		}
-		catch (IllegalArgumentException invalid) {
-			throw new ApiException(400, "INVALID_URL", "O link não é uma URL válida.");
-		}
+		return StringUtils.hasText(value) ? com.socialcoisa.rede.shared.web.SafeUrl.requireHttpUrl(value, "link") : null;
 	}
 
 	private static String trim(String value) {

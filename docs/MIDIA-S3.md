@@ -19,8 +19,18 @@ bucket. A saida foi tirar o bucket do caminho do navegador:
   arrasta a barra), `Cache-Control` longo e ETag. Publico, como o `GET /media/{id}`.
 - `PUT /api/storage/{chave}` — recebe o arquivo do navegador e repassa ao bucket. Exige sessao e a
   chave exata registrada para aquele asset (nao da para escrever em qualquer lugar).
+- Quando `REDE_MEDIA_NSFW_ENABLED=true`, toda imagem passa pelo classificador antes da gravação. Por
+  isso `REDE_MEDIA_S3_UPLOAD_THROUGH_API=false` não é aceito: a subida direta ao bucket contornaria
+  a verificação. Veja [MODERACAO-DE-IMAGENS.md](MODERACAO-DE-IMAGENS.md) para o modelo, limites e
+  parâmetros.
 - `S3UploadSigner` devolve a URL do proxy (`publicBaseUrl`) sempre que ha endpoint custom — ou
   seja, em gateway. Na AWS real continua a URL assinada direto no bucket.
+- **`publicBaseUrl` e por ambiente.** Como a subida e a leitura passam pelo app, a base tem de
+  apontar para a API do MESMO ambiente: produção usa `https://api.enois.ia.br/api/storage/`, a QA
+  usa `https://enois-api-qa.b7cloud.tech/api/storage/`. O bucket e o mesmo, separado por
+  `REDE_MEDIA_S3_PREFIX` (`qa/` na QA); só a base muda. Apontar a QA para a base de produção manda
+  o `PUT` para a API de produção, que não conhece a sessão da QA — a subida falha com 401 e o
+  arquivo nunca chega ao bucket.
 - `V169` reescreve os prefixos antigos (`https://cdn.enois.ia.br/` e
   `https://s3.b7cloud.tech/enois-bucket/`) para `https://api.enois.ia.br/api/storage/` nas colunas
   que guardam midia. O caminho depois do prefixo e o mesmo `objectKey`, entao nada e remapeado.

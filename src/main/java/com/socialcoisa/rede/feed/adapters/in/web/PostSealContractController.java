@@ -51,10 +51,9 @@ class PostSealContractController {
 
 	/** Selos de varios posts de uma vez: `?ids=post_1,post_2` (a pagina inteira numa consulta). */
 	@GetMapping("/seals")
-	Map<String, SealsView> seals(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	Map<String, SealsView> seals(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestParam(value = "ids", required = false) String ids) {
-		CurrentUser user = resolveSafely(userId, sessionToken);
+		CurrentUser user = resolveSafely(sessionToken);
 		List<String> postIds = ids == null ? List.of()
 			: Arrays.stream(ids.split(",")).map(String::trim).filter(value -> !value.isEmpty()).distinct()
 				.limit(MAX_IDS).toList();
@@ -72,35 +71,32 @@ class PostSealContractController {
 	 * Leitura publica; o visitante (ou quem tem sessao) so deixa de ver quem bloqueou.
 	 */
 	@GetMapping("/{postId}/seals/people")
-	SealPeopleView people(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	SealPeopleView people(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String postId) {
-		CurrentUser user = resolveSafely(userId, sessionToken);
+		CurrentUser user = resolveSafely(sessionToken);
 		Set<String> hidden = blockedUsersReader.hiddenIdsFor(user == null ? null : user.id().value());
 		return sealService.people(postId, hidden);
 	}
 
 	@PostMapping("/{postId}/seals")
-	SealsView add(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	SealsView add(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String postId, @RequestBody SealRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return sealService.toggle(user.id().value(), postId, request.seal());
 	}
 
 	/** Remover: tira TODOS os selos que a pessoa tiver no post (o seletor tem "tirar meus selos"). */
 	@DeleteMapping("/{postId}/seals")
-	SealsView remove(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	SealsView remove(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@PathVariable String postId) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return sealService.remove(user.id().value(), postId);
 	}
 
 	/** Sessao opcional: sem sessao (ou com sessao invalida) a leitura publica continua. */
-	private CurrentUser resolveSafely(String userId, String sessionToken) {
+	private CurrentUser resolveSafely(String sessionToken) {
 		try {
-			return currentUserResolver.resolve(userId, sessionToken);
+			return currentUserResolver.resolve(sessionToken);
 		}
 		catch (Exception ignored) {
 			return null;

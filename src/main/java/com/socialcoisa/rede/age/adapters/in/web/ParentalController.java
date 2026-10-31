@@ -33,45 +33,40 @@ class ParentalController {
 	}
 
 	@PostMapping("/invite")
-	InviteView invite(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	InviteView invite(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody InviteRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return parentalConsent.invite(user.id().value(), request.email());
 	}
 
 	@PostMapping("/accept")
-	StatusResponse accept(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	StatusResponse accept(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody TokenRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		parentalConsent.accept(user.id().value(), request.token());
 		return new StatusResponse(request.token(), "SUPERVISION_ACCEPTED");
 	}
 
 	@PostMapping("/reject")
-	StatusResponse reject(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	StatusResponse reject(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody TokenRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		parentalConsent.reject(user.id().value(), request.token());
 		return new StatusResponse(request.token(), "SUPERVISION_REJECTED");
 	}
 
 	@PostMapping("/revoke")
-	StatusResponse revoke(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	StatusResponse revoke(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody RevokeRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		parentalConsent.revoke(user.id().value(), request.minorUserId());
 		return new StatusResponse(request.minorUserId(), "SUPERVISION_REVOKED");
 	}
 
 	/** Perfis que ESTE responsavel supervisiona (nunca os de outro). */
 	@GetMapping("/mine")
-	List<SupervisedMinorView> mine(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	List<SupervisedMinorView> mine(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return parentalConsent.supervisedBy(user.id().value());
 	}
 

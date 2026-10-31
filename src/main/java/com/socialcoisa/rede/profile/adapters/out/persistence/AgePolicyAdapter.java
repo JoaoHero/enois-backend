@@ -39,6 +39,18 @@ class AgePolicyAdapter implements AgePolicyReader {
 	}
 
 	@Override
+	public java.util.Set<String> minorIds(java.util.Collection<String> userIds) {
+		if (userIds.isEmpty()) {
+			return java.util.Set.of();
+		}
+		LocalDate today = LocalDate.now(BRAZIL);
+		return profiles.findAllByIds(userIds).stream()
+			.filter(profile -> profile.isMinorOn(today))
+			.map(profile -> profile.id())
+			.collect(java.util.stream.Collectors.toSet());
+	}
+
+	@Override
 	public boolean parentalConsentActive(String userId) {
 		return parentalLinks.findActiveByMinor(userId).isPresent();
 	}

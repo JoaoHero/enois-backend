@@ -207,7 +207,7 @@ class AgePolicyTests {
 				.content(objectMapper.writeValueAsString(Map.of("token", confirmToken))))
 			.andExpect(status().isOk())
 			.andReturn();
-		return objectMapper.readTree(confirmed.getResponse().getContentAsString()).get("token").asText();
+		return com.socialcoisa.rede.shared.web.TestAuthHelper.sessionToken(confirmed);
 	}
 
 }

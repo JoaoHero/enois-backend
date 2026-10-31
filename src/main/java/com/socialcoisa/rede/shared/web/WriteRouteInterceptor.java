@@ -30,6 +30,9 @@ class WriteRouteInterceptor implements HandlerInterceptor {
 		"/auth/signup",
 		"/auth/login",
 		"/auth/refresh",
+		// Logout only revokes the credentials the caller sends; it must work once the access token
+		// has expired, or the refresh cookie would outlive the "logout".
+		"/auth/logout",
 		"/auth/email/verify",
 		"/auth/email/resend",
 		"/auth/password/forgot",
@@ -38,11 +41,17 @@ class WriteRouteInterceptor implements HandlerInterceptor {
 		"/auth/2fa/resend",
 		"/auth/2fa/email/request",
 		"/auth/2fa/email/confirm",
+		// Formulário público de contribuição da landing: limitado por IP e pelo gate de origem.
+		"/contributors/applications",
 		"/auth/oauth/*/callback",
 		"/auth/oauth/*/token",
 		"/games/tokens/validate",
 		// GitHub não tem sessão no app: a autenticação é o HMAC X-Hub-Signature-256 do webhook.
-		"/webhooks/github");
+		"/webhooks/github",
+		// RFC 8058 one-click unsubscribe: the mail client POSTs without a session. The encrypted
+		// token in the URL is the authorization and the only effect is turning e-mails off.
+		"/blogs/descadastrar",
+		"/notifications/digest/unsubscribe");
 
 	private final AntPathMatcher matcher = new AntPathMatcher();
 	private final CurrentUserResolver currentUserResolver;

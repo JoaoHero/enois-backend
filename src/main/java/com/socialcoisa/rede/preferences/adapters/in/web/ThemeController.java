@@ -30,19 +30,17 @@ class ThemeController {
 	}
 
 	@GetMapping(value = "/me/theme", produces = MediaType.APPLICATION_JSON_VALUE)
-	ThemeResponse theme(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+	ThemeResponse theme(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		return themeService.preferenceOf(user.id().value())
 			.map(preference -> new ThemeResponse(preference.themeId(), preference.updatedAt().toString()))
 			.orElseGet(() -> new ThemeResponse(null, null));
 	}
 
 	@PutMapping("/me/theme")
-	ResponseEntity<Void> setTheme(@RequestHeader(value = "X-User-Id", required = false) String userId,
-			@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
+	ResponseEntity<Void> setTheme(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
 			@RequestBody SetThemeRequest request) {
-		CurrentUser user = currentUserResolver.resolve(userId, sessionToken);
+		CurrentUser user = currentUserResolver.resolve(sessionToken);
 		themeService.setTheme(user.id().value(), request.theme());
 		return ResponseEntity.noContent().build();
 	}

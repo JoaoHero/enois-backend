@@ -49,14 +49,12 @@ class ParentalSupervisionFlowTests {
 		String raw = "token-" + email;
 		TestDatabase.setPendingSignupToken(email, raw);
 
-		String body = mockMvc.perform(post("/auth/email/verify")
+		return com.socialcoisa.rede.shared.web.TestAuthHelper.sessionToken(mockMvc.perform(post("/auth/email/verify")
 				.header("Idempotency-Key", "parental-verify-" + email)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(objectMapper.writeValueAsString(Map.of("token", raw))))
 			.andExpect(status().isOk())
-			.andReturn().getResponse().getContentAsString();
-
-		return objectMapper.readTree(body).get("token").asText();
+			.andReturn());
 	}
 
 	private void publish(String sessionToken, String key) throws Exception {

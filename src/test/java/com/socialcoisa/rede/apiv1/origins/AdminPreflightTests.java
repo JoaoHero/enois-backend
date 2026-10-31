@@ -31,6 +31,7 @@ class AdminPreflightTests {
 				.header("Access-Control-Request-Method", "GET")
 				.header("Access-Control-Request-Headers", "x-client-origin"))
 			.andExpect(status().is2xxSuccessful())
-			.andExpect(header().string("Access-Control-Allow-Origin", "https://enois.ia.br"));
+			.andExpect(header().string("Access-Control-Allow-Origin", "https://enois.ia.br"))
+			.andExpect(header().string("Access-Control-Allow-Credentials", "true"));
 	}
 }

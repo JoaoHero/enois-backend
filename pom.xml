@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>4.1.1</version>
+		<version>4.1.2</version>
 		<relativePath/>
 	</parent>
 	<groupId>com.socialcoisa</groupId>
@@ -32,12 +32,15 @@
 		<jsoup.version>1.23.2</jsoup.version>
 		<!-- O parent do Spring Boot 4 nao gerencia o SDK do AWS, entao a versao e fixada aqui.
 		     Precisa bater com o apache-client que ja esta no cache do Maven (evita baixar duas linhas). -->
-		<awssdk.version>2.56.0</awssdk.version>
+		<awssdk.version>2.57.3</awssdk.version>
 		<!-- Cache em memoria dos agregados da landing (ver CacheConfig). 2.9.x porque e a versao
 		     que ja esta no repositorio local; a API usada e a mesma das 3.x. -->
 		<caffeine.version>3.3.1</caffeine.version>
 		<!-- 3 CVEs críticas em 11.0.24 corrigidas em 11.0.25 (relatório Trivy de 23/10). -->
 		<tomcat.version>11.0.25</tomcat.version>
+		<!-- The app has no default profile; `./mvnw spring-boot:run` runs as dev unless
+		     -Dspring-boot.run.profiles=... says otherwise. Packaged jars must set SPRING_PROFILES_ACTIVE. -->
+		<spring-boot.run.profiles>dev</spring-boot.run.profiles>
 	</properties>
 	<dependencyManagement>
 		<dependencies>
@@ -72,6 +75,23 @@
 		</dependencies>
 	</dependencyManagement>
 	<dependencies>
+		<!-- Classificação de imagens em CPU, no próprio processo do backend. -->
+		<dependency>
+			<groupId>com.microsoft.onnxruntime</groupId>
+			<artifactId>onnxruntime</artifactId>
+			<version>1.31.1</version>
+	</dependency>
+		<!-- ImageIO do JDK não lê WebP/AVIF por padrão; o scanner precisa cobrir todos os formatos aceitos. -->
+		<dependency>
+			<groupId>com.twelvemonkeys.imageio</groupId>
+			<artifactId>imageio-webp</artifactId>
+			<version>3.15.3</version>
+	</dependency>
+		<dependency>
+			<groupId>com.github.gotson.nightmonkeys</groupId>
+			<artifactId>imageio-heif</artifactId>
+			<version>1.1.0</version>
+	</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-h2console</artifactId>
@@ -94,7 +114,7 @@
 		<dependency>
 			<groupId>com.fasterxml.jackson.core</groupId>
 			<artifactId>jackson-databind</artifactId>
-			<version>2.21.7</version>
+			<version>2.22.4</version>
 		</dependency>
 		<!-- Tracing (traceId/spanId in every log line). OTLP export only turns on when an endpoint is set. -->
 		<dependency>
@@ -116,7 +136,7 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-aspectj</artifactId>
-			<version>4.1.1</version>
+			<version>4.1.2</version>
 		</dependency>
 		<dependency>
 			<groupId>io.github.resilience4j</groupId>
@@ -195,17 +215,29 @@
 			<artifactId>jsoup</artifactId>
 			<version>${jsoup.version}</version>
 		</dependency>
+		<!-- README do GitHub -> HTML da bio. Conversor CommonMark + extensoes GFM (tabelas e
+		     riscado); o resultado passa pelo SafeHtml antes de ser gravado. -->
+		<dependency>
+			<groupId>org.commonmark</groupId>
+			<artifactId>commonmark</artifactId>
+			<version>0.24.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.commonmark</groupId>
+			<artifactId>commonmark-ext-gfm-tables</artifactId>
+			<version>0.24.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.commonmark</groupId>
+			<artifactId>commonmark-ext-gfm-strikethrough</artifactId>
+			<version>0.24.0</version>
+		</dependency>
 		<!-- Leitura do texto de curriculos em PDF (importacao via curriculo). So extracao de
 		     texto — nada de renderizacao nem formulario: o arquivo e tratado como documento. -->
 		<dependency>
 			<groupId>org.apache.pdfbox</groupId>
 			<artifactId>pdfbox</artifactId>
 			<version>3.0.8</version>
-		</dependency>
-		<dependency>
-			<groupId>org.projectlombok</groupId>
-			<artifactId>lombok</artifactId>
-			<optional>true</optional>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -226,9 +258,9 @@
 			<artifactId>spring-boot-starter-thymeleaf</artifactId>
 		</dependency>
 		<dependency>
-			<groupId>io.github.cdimascio</groupId>
-			<artifactId>dotenv-java</artifactId>
-			<version>3.2.0</version>
+			<groupId>org.yaml</groupId>
+			<artifactId>snakeyaml</artifactId>
+			<scope>test</scope>
 		</dependency>
 	</dependencies>
 
@@ -242,50 +274,6 @@
 						<goals>
 							<goal>build-info</goal>
 						</goals>
-					</execution>
-				</executions>
-				<configuration>
-					<excludes>
-						<exclude>
-							<groupId>org.projectlombok</groupId>
-							<artifactId>lombok</artifactId>
-						</exclude>
-					</excludes>
-				</configuration>
-			</plugin>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-compiler-plugin</artifactId>
-				<executions>
-					<execution>
-						<id>default-compile</id>
-						<phase>compile</phase>
-						<goals>
-							<goal>compile</goal>
-						</goals>
-						<configuration>
-							<annotationProcessorPaths>
-								<path>
-									<groupId>org.projectlombok</groupId>
-									<artifactId>lombok</artifactId>
-								</path>
-							</annotationProcessorPaths>
-						</configuration>
-					</execution>
-					<execution>
-						<id>default-testCompile</id>
-						<phase>test-compile</phase>
-						<goals>
-							<goal>testCompile</goal>
-						</goals>
-						<configuration>
-							<annotationProcessorPaths>
-								<path>
-									<groupId>org.projectlombok</groupId>
-									<artifactId>lombok</artifactId>
-								</path>
-							</annotationProcessorPaths>
-						</configuration>
 					</execution>
 				</executions>
 			</plugin>

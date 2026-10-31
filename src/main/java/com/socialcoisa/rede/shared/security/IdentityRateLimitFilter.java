@@ -31,17 +31,18 @@ import jakarta.servlet.http.HttpServletResponse;
 class IdentityRateLimitFilter extends OncePerRequestFilter {
 
 	/** Caminho → ação do limitador. Só POST: é o que cria conta, gasta senha ou dispara e-mail. */
-	private static final Map<String, String> RULES = Map.of(
-		"/auth/signup", IpRateLimiter.SIGNUP,
-		"/auth/login", IpRateLimiter.LOGIN,
-		"/auth/password/forgot", IpRateLimiter.PASSWORD,
-		"/auth/password/reset", IpRateLimiter.PASSWORD,
-		"/auth/email/resend", IpRateLimiter.EMAIL,
-		"/auth/2fa/resend", IpRateLimiter.EMAIL,
-		"/auth/2fa/email/request", IpRateLimiter.EMAIL,
-		"/auth/2fa/verify", IpRateLimiter.TWO_FACTOR,
-		"/auth/2fa/email/confirm", IpRateLimiter.TWO_FACTOR,
-		"/auth/2fa/totp/enable", IpRateLimiter.TWO_FACTOR);
+	private static final Map<String, String> RULES = Map.ofEntries(
+		Map.entry("/auth/signup", IpRateLimiter.SIGNUP),
+		Map.entry("/auth/login", IpRateLimiter.LOGIN),
+		Map.entry("/auth/password/forgot", IpRateLimiter.PASSWORD),
+		Map.entry("/auth/password/reset", IpRateLimiter.PASSWORD),
+		Map.entry("/auth/email/resend", IpRateLimiter.EMAIL),
+		Map.entry("/auth/2fa/resend", IpRateLimiter.EMAIL),
+		Map.entry("/auth/2fa/email/request", IpRateLimiter.EMAIL),
+		Map.entry("/auth/2fa/verify", IpRateLimiter.TWO_FACTOR),
+		Map.entry("/auth/2fa/email/confirm", IpRateLimiter.TWO_FACTOR),
+		Map.entry("/auth/2fa/totp/enable", IpRateLimiter.TWO_FACTOR),
+		Map.entry("/auth/refresh", IpRateLimiter.REFRESH));
 
 	private final IpRateLimiter limiter;
 	private final ClientIpResolver ipResolver;
@@ -56,7 +57,8 @@ class IdentityRateLimitFilter extends OncePerRequestFilter {
 			throws ServletException, IOException {
 		String action = actionFor(request);
 		if (action != null && !limiter.tryAcquire(action, ipResolver.resolve(request))) {
-			writeTooManyRequests(response);
+			RateLimitResponses.send(request, response, 300, "RATE_LIMITED",
+				"Muitas tentativas em sequencia. Espere alguns minutos e tente de novo.");
 			return;
 		}
 		filterChain.doFilter(request, response);
@@ -76,32 +78,6 @@ class IdentityRateLimitFilter extends OncePerRequestFilter {
 		return RULES.get(normalized);
 	}
 
-	private void writeTooManyRequests(HttpServletResponse response) throws IOException {
-		response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
-		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-		response.setCharacterEncoding("UTF-8");
-		Map<String, String> body = new LinkedHashMap<>();
-		body.put("code", "RATE_LIMITED");
-		body.put("message", "Muitas tentativas em sequência. Espere alguns minutos e tente de novo.");
-		body.put("timestamp", Instant.now().toString());
-		response.getWriter().write(toJson(body));
-	}
 
-	/** JSON montado à mão: o filtro roda antes do MVC, então não há ObjectMapper injetado aqui. */
-	private String toJson(Map<String, String> body) {
-		StringBuilder json = new StringBuilder("{");
-		List<Map.Entry<String, String>> entries = List.copyOf(body.entrySet());
-		for (int i = 0; i < entries.size(); i++) {
-			Map.Entry<String, String> entry = entries.get(i);
-			if (i > 0) {
-				json.append(',');
-			}
-			json.append('"').append(entry.getKey()).append("\":\"").append(escape(entry.getValue())).append('"');
-		}
-		return json.append('}').toString();
-	}
 
-	private String escape(String value) {
-		return value.replace("\\", "\\\\").replace("\"", "\\\"");
-	}
 }

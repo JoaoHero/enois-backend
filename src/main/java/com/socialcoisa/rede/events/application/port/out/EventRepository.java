@@ -12,7 +12,20 @@ public interface EventRepository {
 
 	Optional<Event> findById(String id);
 
-	List<Event> findAll(String format, java.time.Instant before, int limit);
+	/** `state` nulo desliga o filtro de lugar; com `state`, so eventos nao-online daquela UF/cidade. */
+	List<Event> findAll(String format, String state, String cityKey, java.time.Instant before, boolean recurringOnly,
+			int limit);
+
+	/** Every event whose series still repeats (recurrence other than NONE). */
+	List<Event> findRecurring();
+
+	/** The most recently created occurrence of a series: only it spawns the next one. */
+	Optional<Event> findLatestInSeries(String seriesId);
+
+	boolean existsInSeries(String seriesId, String date);
+
+	/** Recurrence is a property of the whole series: changing it (or stopping it) hits every occurrence. */
+	void updateSeriesRecurrence(String seriesId, com.socialcoisa.rede.events.domain.EventRecurrence recurrence);
 
 	void saveAttendee(EventAttendee attendee);
 

@@ -58,11 +58,26 @@ class GithubWebhookController {
 		if (!validSignature(secret, signature, body)) {
 			return ResponseEntity.status(401).build();
 		}
-		if (!"issues".equals(event)) {
-			return ResponseEntity.ok().build();
-		}
 		try {
 			JsonNode payload = objectMapper.readTree(new String(body, StandardCharsets.UTF_8));
+			if ("issue_comment".equals(event)) {
+				String action = payload.path("action").asString("");
+				String repository = payload.path("repository").path("full_name").asString("");
+				if (!webhookService.acceptsRepository(repository) || !"created".equals(action)) {
+					return ResponseEntity.ok().build();
+				}
+				int issueNumber = payload.path("issue").path("number").asInt(0);
+				long commentId = payload.path("comment").path("id").asLong(0);
+				String author = payload.path("comment").path("user").path("login").asString("");
+				String commentBody = payload.path("comment").path("body").asString("");
+				if (issueNumber > 0 && commentId > 0) {
+					webhookService.applyIssueComment(issueNumber, commentId, author, commentBody);
+				}
+				return ResponseEntity.ok().build();
+			}
+			if (!"issues".equals(event)) {
+				return ResponseEntity.ok().build();
+			}
 			String action = payload.path("action").asString("");
 			String repository = payload.path("repository").path("full_name").asString("");
 			if (!webhookService.acceptsRepository(repository)) {

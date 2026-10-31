@@ -7,6 +7,51 @@ fica no repositório `enois-frontend` — o contrato entre os dois é a API, e m
 Antes de começar: leia o [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). Falha de segurança **não** vira
 issue — o canal está no [`SECURITY.md`](SECURITY.md).
 
+## Selos de contribuição
+
+PRs integrados e issues qualificadas nos repositórios oficiais da organização
+[`Rede-ENois`](https://github.com/Rede-ENois) geram selos de reconhecimento por faixa: **Ajudante,
+Contribuinte sério, Hardcore, Tryhard, Get a life** (código) e **Beta tester, Exigente, Esforço
+máximo, Plus ultra, Genkidama** (issues). O nível é derivado da contagem verificada no backend —
+nunca de um contador enviado pelo cliente. PR revertido deixa de contar; issue só conta quando tem
+label de qualificação ou é validada por um mantenedor.
+
+Critérios públicos e o fluxo completo estão em [`docs/CONTRIBUTION_SEALS.md`](docs/CONTRIBUTION_SEALS.md)
+e em <https://enois.ia.br/selos>. O selo reconhece contribuição; não é verificação de identidade
+civil, vínculo empregatício, cargo administrativo, privilégio de moderação ou recompensa financeira.
+
+Para vincular o GitHub, entre na conta do Énóis e use **Segurança → GitHub para selos**. PRs
+triviais, fragmentados artificialmente ou revertidos por problemas introduzidos não contam.
+
+## Verificando o ambiente local
+
+Para seguir do clone até a primeira contribuição, consulte o [guia de desenvolvimento local](docs/LOCAL_DEVELOPMENT.md).
+
+Antes de iniciar o backend, execute o diagnóstico de pré-requisitos:
+
+```bash
+bash scripts/dev-doctor.sh
+```
+
+O Dev Doctor verifica Git, Java/JDK 25, Maven Wrapper e a porta 8081.
+Docker é opcional para o desenvolvimento com H2 em memória.
+
+- `[PASS]`: requisito encontrado.
+- `[WARN]`: possível limitação que não impede o desenvolvimento.
+- `[FAIL]`: requisito essencial ausente ou incompatível.
+
+O comando retorna código `0` quando não há falhas essenciais e `1`
+quando o ambiente precisa de ajustes.
+
+Para executar os testes do próprio diagnóstico:
+
+```bash
+bash scripts/tests/dev-doctor-test.sh
+```
+
+O diagnóstico não instala dependências, não modifica o ambiente e não
+acessa a infraestrutura de deploy do projeto.
+
 ## Rodando
 
 ```bash
@@ -87,3 +132,23 @@ Regras que valem em toda parte:
 
 O deploy é por imagem no ECR + manifesto no GitOps (não é `fly deploy`). O fluxo, as pendências de
 infraestrutura e as ações manuais estão no README.
+
+## Contribuições com IA
+
+Este projeto aceita e usa código escrito com ajuda de IA — com as mesmas regras de sempre e mais
+algumas próprias:
+
+1. **Declare the use.** Check the AI box in the PR template checklist. No tool name and no
+   attribution line (Co-Authored-By, "Generated with") in commits or PRs: the checkbox is the record.
+2. **Quem submete responde pelo código.** Entenda cada linha antes de abrir a PR; saída de IA colada
+   sem revisão é a forma mais rápida de introduzir regressão sutil.
+3. **Prova, não promessa.** "Deveria funcionar" não é verificação: rode os testes do escopo e
+   descreva o resultado na PR.
+4. **Zero slop.** Sem comentário narrando o óbvio, sem arquivo gerado em massa, sem dependência nova
+   sem justificativa, sem refatoração que a tarefa não pediu.
+5. **Segurança vem primeiro.** As regras do [`AGENTS.md`](AGENTS.md) valem integralmente — em
+   especial: mensagem de commit neutra, nenhum detalhe de correção de segurança no texto público,
+   nenhum segredo ou dado pessoal em qualquer artefato.
+6. **Revisão humana antes do merge continua sendo a regra**, com aprovação de quem não empurrou.
+
+O contrato completo para agentes está no [`AGENTS.md`](AGENTS.md).

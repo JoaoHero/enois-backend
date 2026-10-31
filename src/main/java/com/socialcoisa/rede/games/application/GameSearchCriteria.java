@@ -39,7 +39,7 @@ public record GameSearchCriteria(String query, String genre, String tag, GameSta
 		if (term == null) {
 			return null;
 		}
-		return "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_").toLowerCase(Locale.ROOT) + "%";
+		return "%" + com.socialcoisa.rede.shared.web.LikePattern.escape(term.toLowerCase(Locale.ROOT)) + "%";
 	}
 
 	private static String clean(String value, int max) {

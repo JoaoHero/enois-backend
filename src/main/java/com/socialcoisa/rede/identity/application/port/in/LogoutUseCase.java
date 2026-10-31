@@ -2,5 +2,6 @@ package com.socialcoisa.rede.identity.application.port.in;
 
 public interface LogoutUseCase {
 
-	void logout(String token);
+	/** Revokes the session by its access token and/or its refresh token, whichever is present. */
+	void logout(String token, String refreshToken);
 }

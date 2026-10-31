@@ -1,16 +1,21 @@
 package com.socialcoisa.rede.importlinkedin;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
+import java.util.zip.ZipFile;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -31,10 +36,118 @@ import com.socialcoisa.rede.shared.web.ApiException;
 public class LinkedinImportService {
 
 	private static final int MAX_ZIP_BYTES = 5 * 1024 * 1024;
-	/** Orçamento de descompressão (EN-10/E-08): ZIP pequeno pode expandir para centenas de MB. */
+	/**
+	 * Decompression budget: a small ZIP can expand to hundreds of MB. Only the CSVs the importer
+	 * uses are ever inflated; each is streamed against these caps (bytes actually read, never the
+	 * sizes the archive declares) and the read stops as soon as one is crossed.
+	 */
 	private static final int MAX_ENTRIES = 50;
 	private static final long MAX_ENTRY_BYTES = 2L * 1024 * 1024;
-	private static final long MAX_TOTAL_BYTES = 8L * 1024 * 1024;
+	/** Expansion ratio cap, only checked past {@link #RATIO_FLOOR_BYTES} so tiny exports never trip it. */
+	private static final long MAX_EXPANSION_RATIO = 100;
+	private static final long RATIO_FLOOR_BYTES = 1024L * 1024;
+	private static final long DEFAULT_MAX_TOTAL_BYTES = 8L * 1024 * 1024;
+	/** The CSVs read below; every other entry (photos, messages, other data) is never inflated. */
+	private static final Set<String> USED_CSVS = Set.of("Positions.csv", "Profile.csv", "Education.csv",
+		"Skills.csv", "Certifications.csv", "Courses.csv", "Languages.csv", "Projects.csv", "Publications.csv",
+		"Volunteering.csv", "Honors & Awards.csv", "Connections.csv");
+	/** Teto de contatos por importação (o arquivo real costuma ter centenas, não milhares). */
+	private static final int MAX_CONTACTS = 5000;
+	/** Teto da coluna do nome (linkedin_contact_invites.contact_name) e do e-mail consultado. */
+	private static final int MAX_NAME_LENGTH = 200;
+	private static final int MAX_EMAIL_LENGTH = 254;
+
+	private final long maxTotalBytes;
+
+	public LinkedinImportService() {
+		this(DEFAULT_MAX_TOTAL_BYTES);
+	}
+
+	@Autowired
+	public LinkedinImportService(
+			@Value("${rede.import.linkedin.max-uncompressed-bytes:8388608}") long maxTotalBytes) {
+		this.maxTotalBytes = maxTotalBytes;
+	}
+
+	// ===== contatos (Connections.csv) =====
+
+	/**
+	 * Lê os contatos do arquivo de dados (Connections.csv dentro do ZIP) ou de um CSV avulso.
+	 * A API de conexões do LinkedIn exige o escopo r_1st_connections, restrito a apps aprovados;
+	 * o arquivo exportado é o caminho sancionado e o membro é dono dos próprios dados.
+	 */
+	public List<ParsedContact> parseContacts(MultipartFile file) {
+		if (file == null || file.isEmpty()) {
+			throw new ApiException(400, "FILE_REQUIRED", "Envie o arquivo .zip ou .csv do LinkedIn.");
+		}
+		try {
+			byte[] bytes = file.getBytes();
+			if (bytes.length > MAX_ZIP_BYTES) {
+				throw new ApiException(400, "FILE_TOO_LARGE",
+					"O arquivo passa do limite de " + (MAX_ZIP_BYTES / 1024 / 1024) + " MB.");
+			}
+			String csv;
+			if (bytes.length >= 2 && bytes[0] == 'P' && bytes[1] == 'K') {
+				csv = readUsedCsvs(file).get("Connections.csv");
+			}
+			else {
+				csv = new String(bytes, StandardCharsets.UTF_8);
+			}
+			return contactsFromCsv(csv);
+		}
+		catch (ApiException failure) {
+			throw failure;
+		}
+		catch (Exception failure) {
+			throw new ApiException(400, "INVALID_LINKEDIN_FILE",
+				"Não foi possível ler o arquivo do LinkedIn. Use o ZIP de \"Obter uma cópia dos seus dados\".");
+		}
+	}
+
+	private List<ParsedContact> contactsFromCsv(String csv) {
+		if (!StringUtils.hasText(csv)) {
+			throw new ApiException(400, "CONNECTIONS_NOT_FOUND",
+				"Não encontrei o Connections.csv. Exporte em Configurações → \"Obter uma cópia dos seus dados\".");
+		}
+		// O export do LinkedIn põe algumas linhas de nota antes do cabeçalho.
+		String[] lines = csv.split("R?\\n", -1);
+		int header = -1;
+		for (int i = 0; i < lines.length; i++) {
+			if (lines[i].trim().toLowerCase(java.util.Locale.ROOT).startsWith("first name")) {
+				header = i;
+				break;
+			}
+		}
+		String body = header < 0 ? csv : String.join("\n", java.util.Arrays.copyOfRange(lines, header, lines.length));
+		List<ParsedContact> contacts = new ArrayList<>();
+		java.util.Set<String> seen = new java.util.HashSet<>();
+		for (Map<String, String> row : rows(body)) {
+			String name = (row.getOrDefault("first name", "") + " " + row.getOrDefault("last name", "")).trim();
+			if (name.isBlank()) {
+				continue;
+			}
+			// A coluna guarda 200 caracteres; coluna do arquivo é texto livre e não pode derrubar o INSERT.
+			if (name.length() > MAX_NAME_LENGTH) {
+				name = name.substring(0, MAX_NAME_LENGTH).trim();
+			}
+			String key = name.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
+			if (!seen.add(key)) {
+				continue;
+			}
+			String email = row.getOrDefault("email address", "").trim();
+			if (email.length() > MAX_EMAIL_LENGTH) {
+				email = "";
+			}
+			contacts.add(new ParsedContact(name, email.isBlank() ? null : email.toLowerCase(java.util.Locale.ROOT)));
+			if (contacts.size() >= MAX_CONTACTS) {
+				break;
+			}
+		}
+		return contacts;
+	}
+
+	public record ParsedContact(String name, String email) {
+	}
 
 	// ===== retrato devolvido para revisão no front =====
 
@@ -77,29 +190,7 @@ public class LinkedinImportService {
 		if (file.getSize() > MAX_ZIP_BYTES) {
 			throw new ApiException(400, "FILE_TOO_LARGE", "O arquivo do LinkedIn deve ter no maximo 5 MB.");
 		}
-		Map<String, String> csvs = new LinkedHashMap<>();
-		try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(file.getBytes()))) {
-			ZipEntry entry;
-			int entries = 0;
-			long totalRead = 0;
-			while ((entry = zip.getNextEntry()) != null) {
-				if (++entries > MAX_ENTRIES) {
-					throw new ApiException(400, "FILE_TOO_LARGE", "O ZIP tem entradas demais para um export do LinkedIn.");
-				}
-				String name = entry.getName();
-				if (entry.isDirectory() || !name.endsWith(".csv")) {
-					continue;
-				}
-				// O ZIP do LinkedIn guarda os CSVs numa pasta (".../Positions.csv") — casa pelo nome.
-				String simple = name.substring(name.lastIndexOf('/') + 1);
-				byte[] bytes = readBounded(zip, MAX_TOTAL_BYTES - totalRead);
-				totalRead += bytes.length;
-				csvs.putIfAbsent(simple, stripBom(new String(bytes, StandardCharsets.UTF_8)));
-				zip.closeEntry();
-			}
-		} catch (IOException error) {
-			throw new ApiException(400, "INVALID_FILE", "Não foi possível ler o arquivo. É um .zip do LinkedIn?");
-		}
+		Map<String, String> csvs = readUsedCsvs(file);
 		// O export RÁPIDO ("fast file") só traz Profile.csv + Registration.csv — aceitamos ele com
 		// o que tem (perfil), em vez de dar beco sem saída. Recusamos só quando NENHUM CSV é do
 		// LinkedIn (arquivo que não é export, imagem etc.). O export completo vem com senha: o
@@ -669,20 +760,73 @@ public class LinkedinImportService {
 		return linha.matches("[\\p{L}\\p{M}' .,-]{2,60}") && !linha.matches(".*\\d.*") && linha.contains(", ");
 	}
 
-	/** Lê uma entrada com teto por entrada e pelo orçamento total restante (anti ZIP bomb). */
-	private static byte[] readBounded(ZipInputStream zip, long remaining) throws IOException {
-		ByteArrayOutputStream out = new ByteArrayOutputStream();
+	/**
+	 * Spools the upload (already capped at {@link #MAX_ZIP_BYTES}) to a temp file and opens it by its
+	 * central directory, so entries the importer does not use are skipped without being inflated.
+	 */
+	private Map<String, String> readUsedCsvs(MultipartFile file) {
+		Map<String, String> csvs = new LinkedHashMap<>();
+		Path spooled = null;
+		try {
+			spooled = Files.createTempFile("linkedin-import-", ".zip");
+			file.transferTo(spooled);
+			try (ZipFile zip = new ZipFile(spooled.toFile())) {
+				if (zip.size() > MAX_ENTRIES) {
+					throw tooLarge();
+				}
+				long totalCap = Math.min(maxTotalBytes, Math.max(RATIO_FLOOR_BYTES, file.getSize() * MAX_EXPANSION_RATIO));
+				long totalRead = 0;
+				for (ZipEntry entry : java.util.Collections.list(zip.entries())) {
+					String name = entry.getName();
+					// O ZIP do LinkedIn guarda os CSVs numa pasta (".../Positions.csv") — casa pelo nome.
+					String simple = name.substring(name.lastIndexOf('/') + 1);
+					if (entry.isDirectory() || !USED_CSVS.contains(simple) || csvs.containsKey(simple)) {
+						continue;
+					}
+					ByteArrayOutputStream out = new ByteArrayOutputStream();
+					try (InputStream in = zip.getInputStream(entry)) {
+						totalRead = readBounded(in, out, totalRead, totalCap);
+					}
+					csvs.put(simple, stripBom(out.toString(StandardCharsets.UTF_8)));
+				}
+			}
+		} catch (IOException | IllegalArgumentException error) {
+			throw new ApiException(400, "INVALID_FILE", "Não foi possível ler o arquivo. É um .zip do LinkedIn?");
+		} finally {
+			if (spooled != null) {
+				try {
+					Files.deleteIfExists(spooled);
+				} catch (IOException ignored) {
+					// The OS temp cleaner removes it; the content is the user's own export.
+				}
+			}
+		}
+		return csvs;
+	}
+
+	/**
+	 * Streams one entry into {@code out}, counting the bytes actually inflated, and aborts as soon
+	 * as the entry or the running total crosses its cap. Returns the new running total.
+	 */
+	private static long readBounded(InputStream in, ByteArrayOutputStream out, long totalSoFar, long totalCap)
+			throws IOException {
 		byte[] buffer = new byte[8192];
-		long total = 0;
+		long entryBytes = 0;
+		long total = totalSoFar;
 		int read;
-		while ((read = zip.read(buffer)) != -1) {
+		while ((read = in.read(buffer)) != -1) {
+			entryBytes += read;
 			total += read;
-			if (total > MAX_ENTRY_BYTES || total > remaining) {
-				throw new ApiException(400, "FILE_TOO_LARGE",
-					"O conteudo descompactado do ZIP e grande demais para um export do LinkedIn.");
+			if (entryBytes > MAX_ENTRY_BYTES || total > totalCap) {
+				throw tooLarge();
 			}
 			out.write(buffer, 0, read);
 		}
-		return out.toByteArray();
+		return total;
+	}
+
+	private static ApiException tooLarge() {
+		return new ApiException(413, "IMPORT_TOO_LARGE",
+			"O conteudo descompactado do ZIP e grande demais para um export do LinkedIn.");
 	}
 }

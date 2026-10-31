@@ -5,7 +5,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -21,17 +20,19 @@ import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Contenção imediata do ataque "probe": o cadastro com o padrão não nasce e o IP de origem é
- * fechado na mesma requisição (login e novos cadastros daquele endereço param).
+ * Contenção do ataque "probe": o cadastro com o padrão não nasce; repeated hits pause signups from
+ * that IP for a while, but never write blocked_ips and never block login. Headers sent by the client
+ * cannot pick which address gets paused.
  *
  * O portão fica desligado no perfil padrão da suíte (as contas de teste usam "probe..."); aqui
- * ele é ligado só neste contexto e a linha de blocked_ips é removida no fim.
+ * ele é ligado só neste contexto.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 class SuspiciousSignupGuardTests {
 
 	private static final String LOOPBACK = "127.0.0.1";
+	private static final String FORGED = "198.51.100.250";
 
 	@Autowired
 	private MockMvc mockMvc;
@@ -48,46 +49,40 @@ class SuspiciousSignupGuardTests {
 	}
 
 	@Test
-	void attackPatternSignupIsRefusedAndTheIpIsBlocked() throws Exception {
-		jdbc.update("delete from blocked_ips where ip = ?", LOOPBACK);
-		try {
-			// Cadastro com o nome do ataque: 403 genérico (não revela a regra). Um único nome
-			// não fecha a rede inteira: são precisos 3 indícios em 10 minutos (N-08).
-			for (int i = 1; i <= 3; i++) {
-				mockMvc.perform(post("/auth/signup")
-						.header("Idempotency-Key", "guard-signup-" + i)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content(objectMapper.writeValueAsString(Map.of(
-							"name", "Probe radica", "role", "USER", "email", "radica" + i + "@test.com",
-							"password", "Test1234!", "acceptedTerms", true, "birthDate", "1990-05-10"))))
-					.andExpect(status().isForbidden())
-					.andExpect(jsonPath("$.code").value("SIGNUP_REFUSED"));
-			}
-
-			// O IP entrou na lista: o próximo login/cadastro daqui nem chega na senha.
-			assertThat(jdbc.queryForList("select ip from blocked_ips where ip = ?", String.class, LOOPBACK))
-				.contains(LOOPBACK);
-
-			mockMvc.perform(post("/auth/login")
-					.header("Idempotency-Key", "guard-login-1")
-					.contentType(MediaType.APPLICATION_JSON)
-					.content(objectMapper.writeValueAsString(Map.of(
-						"email", "quem-ja-existe@test.com", "password", "Test1234!"))))
-				.andExpect(status().isForbidden())
-				.andExpect(jsonPath("$.code").value("IP_BLOCKED"));
-
-			// Cadastro normal também é barrado pelo IP (o portão fechou a porta inteira).
+	void repeatedAttackSignupsPauseSignupsButNeverBlockTheIp() throws Exception {
+		// Forged IP headers from the client: none of them may become the paused/blocked address.
+		for (int i = 1; i <= 3; i++) {
 			mockMvc.perform(post("/auth/signup")
-					.header("Idempotency-Key", "guard-signup-2")
+					.header("Idempotency-Key", "guard-signup-" + i)
+					.header("X-Real-IP", FORGED)
+					.header("CF-Connecting-IP", FORGED)
 					.contentType(MediaType.APPLICATION_JSON)
-					.content(objectMapper.writeValueAsString(Map.of(
-						"name", "Pessoa Normal", "role", "USER", "email", "normal@test.com",
-						"password", "Test1234!", "acceptedTerms", true, "birthDate", "1990-05-10"))))
+					.content(signup("Probe radica", "radica" + i + "@test.com")))
 				.andExpect(status().isForbidden())
-				.andExpect(jsonPath("$.code").value("IP_BLOCKED"));
+				.andExpect(jsonPath("$.code").value("SIGNUP_REFUSED"));
 		}
-		finally {
-			jdbc.update("delete from blocked_ips where ip = ?", LOOPBACK);
-		}
+
+		assertThat(jdbc.queryForList("select ip from blocked_ips where ip in (?, ?)", String.class, LOOPBACK, FORGED))
+			.isEmpty();
+
+		// Login from the same address is untouched (401: the account does not exist).
+		mockMvc.perform(post("/auth/login")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of(
+					"email", "quem-nao-existe@test.com", "password", "Test1234!"))))
+			.andExpect(status().isUnauthorized());
+
+		// Signups from the real peer are paused for a while, even with a normal name.
+		mockMvc.perform(post("/auth/signup")
+				.header("Idempotency-Key", "guard-signup-normal")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(signup("Pessoa Normal", "normal@test.com")))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("SIGNUP_REFUSED"));
+	}
+
+	private String signup(String name, String email) throws Exception {
+		return objectMapper.writeValueAsString(Map.of("name", name, "role", "USER", "email", email,
+			"password", "Test1234!", "acceptedTerms", true, "birthDate", "1990-05-10"));
 	}
 }

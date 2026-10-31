@@ -97,7 +97,7 @@ class AuthProfileFlowTests {
 			.andExpect(jsonPath("$.user.emailVerified").value(true))
 			.andReturn();
 
-		String token = objectMapper.readTree(login.getResponse().getContentAsString()).get("token").asText();
+		String token = com.socialcoisa.rede.shared.web.TestAuthHelper.sessionToken(login);
 		assertThat(token).isNotBlank();
 
 		mockMvc.perform(get("/auth/me")

@@ -12,6 +12,9 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.util.StringUtils;
 
+import com.socialcoisa.rede.contributions.application.GitHubIdentityService;
+import com.socialcoisa.rede.contributions.application.GitHubUserTokenService;
+import com.socialcoisa.rede.profile.application.port.out.UserProfileRepository;
 import com.socialcoisa.rede.support.application.port.out.GithubIssuesGateway;
 import com.socialcoisa.rede.support.application.port.out.SupportRequestRepository;
 import com.socialcoisa.rede.support.domain.SupportRequest;
@@ -34,10 +37,20 @@ class SupportGithubSync {
 
 	private final SupportRequestRepository repository;
 	private final GithubIssuesGateway gateway;
+	private final SupportThreadService thread;
+	private final GitHubIdentityService githubIdentities;
+	private final GitHubUserTokenService githubTokens;
+	private final UserProfileRepository profiles;
 
-	SupportGithubSync(SupportRequestRepository repository, GithubIssuesGateway gateway) {
+	SupportGithubSync(SupportRequestRepository repository, GithubIssuesGateway gateway,
+			SupportThreadService thread, GitHubIdentityService githubIdentities,
+			GitHubUserTokenService githubTokens, UserProfileRepository profiles) {
 		this.repository = repository;
 		this.gateway = gateway;
+		this.thread = thread;
+		this.githubIdentities = githubIdentities;
+		this.githubTokens = githubTokens;
+		this.profiles = profiles;
 	}
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = false)
@@ -58,6 +71,48 @@ class SupportGithubSync {
 			LOG.warn("Falha ao espelhar o pedido {} no GitHub: {}", event.requestId(),
 				failure.getClass().getSimpleName());
 		}
+	}
+
+	/**
+	 * Resposta do painel vira comentário na issue. Publica com o token de escrita da pessoa quando
+	 * ela vinculou o GitHub com essa permissão (o comentário aparece com o perfil dela); sem isso,
+	 * usa o token de serviço e atribui o texto a quem respondeu. Sempre melhor esforço: falha no
+	 * GitHub nunca desfaz a resposta já gravada e enviada ao solicitante.
+	 */
+	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = false)
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void onReply(SupportReplyEvent event) {
+		if (!gateway.enabled()) {
+			return;
+		}
+		try {
+			SupportRequest request = repository.findById(event.requestId()).orElse(null);
+			if (request == null || request.githubIssueNumber() == null) {
+				return;
+			}
+			String login = githubIdentities.status(event.adminId()).linked()
+				? githubIdentities.status(event.adminId()).login() : null;
+			String authorName = profiles.findById(event.adminId())
+				.map(profile -> profile.displayWithNickname()).orElse(login);
+			String body = attribution(login) + "\n\n" + event.body();
+			String userToken = githubTokens.accessToken(event.adminId()).orElse(null);
+			var comment = gateway.comment(request.githubIssueNumber(), body, userToken);
+			if (comment.isEmpty() && userToken != null) {
+				// Token da pessoa sem permissão no repositório: cai para o token de serviço.
+				comment = gateway.comment(request.githubIssueNumber(), body, null);
+			}
+			comment.ifPresent(id -> thread.markGithubComment(event.messageId(), id, authorName, login));
+		}
+		catch (RuntimeException failure) {
+			LOG.warn("Falha ao espelhar a resposta do ticket {} no GitHub: {}", event.requestId(),
+				failure.getClass().getSimpleName());
+		}
+	}
+
+	private static String attribution(String login) {
+		return StringUtils.hasText(login)
+			? "**@" + login + "** (pelo Énóis):"
+			: "**Equipe Énois** (pelo Énóis):";
 	}
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = false)

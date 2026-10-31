@@ -22,9 +22,9 @@ interface SpringDataExternalJobJpaRepository extends JpaRepository<ExternalJobJp
 	@Query("""
 			SELECT e FROM ExternalJobJpaEntity e
 			WHERE e.platform <> :platform
-			  AND (LOWER(e.title) LIKE :pattern ESCAPE '\\'
-			   OR LOWER(e.company) LIKE :pattern ESCAPE '\\'
-			   OR LOWER(e.location) LIKE :pattern ESCAPE '\\')
+			  AND (LOWER(e.title) LIKE :pattern ESCAPE '!'
+			   OR LOWER(e.company) LIKE :pattern ESCAPE '!'
+			   OR LOWER(e.location) LIKE :pattern ESCAPE '!')
 			ORDER BY e.lastCheckedAt DESC""")
 	List<ExternalJobJpaEntity> searchExcludingPlatform(@Param("platform") String platform,
 		@Param("pattern") String pattern, Pageable pageable);
@@ -32,7 +32,7 @@ interface SpringDataExternalJobJpaRepository extends JpaRepository<ExternalJobJp
 	List<ExternalJobJpaEntity> findByPlatformOrderByLastCheckedAtDesc(String platform, Pageable pageable);
 
 	@Query("SELECT e FROM ExternalJobJpaEntity e WHERE e.platform = :platform "
-		+ "AND LOWER(e.title) LIKE :pattern ESCAPE '\\' ORDER BY e.lastCheckedAt DESC")
+		+ "AND LOWER(e.title) LIKE :pattern ESCAPE '!' ORDER BY e.lastCheckedAt DESC")
 	List<ExternalJobJpaEntity> searchByPlatform(@Param("platform") String platform,
 		@Param("pattern") String pattern, Pageable pageable);
 
@@ -60,9 +60,9 @@ interface SpringDataExternalJobJpaRepository extends JpaRepository<ExternalJobJp
 	 */
 	@Query("""
 			SELECT e FROM ExternalJobJpaEntity e
-			WHERE LOWER(e.title) LIKE :pattern ESCAPE '\\'
-			   OR LOWER(e.company) LIKE :pattern ESCAPE '\\'
-			   OR LOWER(e.location) LIKE :pattern ESCAPE '\\'
+			WHERE LOWER(e.title) LIKE :pattern ESCAPE '!'
+			   OR LOWER(e.company) LIKE :pattern ESCAPE '!'
+			   OR LOWER(e.location) LIKE :pattern ESCAPE '!'
 			ORDER BY e.lastCheckedAt DESC""")
 	List<ExternalJobJpaEntity> search(@org.springframework.data.repository.query.Param("pattern") String pattern,
 			Pageable pageable);

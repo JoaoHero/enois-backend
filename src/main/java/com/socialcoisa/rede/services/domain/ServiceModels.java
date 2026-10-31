@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.springframework.util.StringUtils;
 
 import com.socialcoisa.rede.shared.web.ApiException;
+import com.socialcoisa.rede.shared.web.TextFieldLimit;
 
 /**
  * Os pedaços do marketplace de serviços (Fase 5): a OFERTA (o profissional publica o
@@ -170,5 +171,13 @@ public final class ServiceModels {
 		if (price <= 0) {
 			throw new ApiException(400, "INVALID_PRICE", "O preço precisa ser positivo.");
 		}
+		// Os tetos sao os das COLUNAS (`service_listings.title varchar(160)`, `description
+		// varchar(2000)`, `deliverables varchar(1000)`, `category varchar(40)`): sem esta checagem o
+		// banco recusava a gravacao com "Data too long" e a pessoa levava 409 "conflita com o estado
+		// atual dos dados", sem saber qual campo era.
+		TextFieldLimit.check("SERVICE_FIELD_TOO_LONG", "categoria", category, 40);
+		TextFieldLimit.check("SERVICE_FIELD_TOO_LONG", "titulo", title, 160);
+		TextFieldLimit.check("SERVICE_FIELD_TOO_LONG", "descricao", description, 2000);
+		TextFieldLimit.check("SERVICE_FIELD_TOO_LONG", "entregaveis", deliverables, 1000);
 	}
 }

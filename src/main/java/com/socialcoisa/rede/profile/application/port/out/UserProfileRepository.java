@@ -58,5 +58,8 @@ public interface UserProfileRepository {
 	/** O ranking público: os perfis que acabaram de chegar, mais recentes primeiro. */
 	List<UserProfile> findNewestProfiles(int limit);
 
+	/** Contas com papel administrativo (coluna imutável), para a gestão de admins. */
+	List<UserProfile> findAdmins();
+
 	List<UserProfile> searchByQuery(String query);
 }

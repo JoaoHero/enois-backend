@@ -60,14 +60,16 @@ public class ServicesService {
 				continue;
 			}
 			profiles.findById(listing.sellerId()).ifPresentOrElse(
-				profile -> sellers.put(listing.sellerId(), new Seller(profile.name(), profile.avatar())),
-				() -> sellers.put(listing.sellerId(), new Seller(null, null)));
+				profile -> sellers.put(listing.sellerId(), new Seller(profile.name(), profile.avatar(),
+					com.socialcoisa.rede.profile.application.NameStyleView.from(profile))),
+				() -> sellers.put(listing.sellerId(), new Seller(null, null, null)));
 		}
 		return sellers;
 	}
 
 	/** Quem presta o servico: nome e foto (null quando a conta nao existe mais). */
-	public record Seller(String name, String avatar) {
+	public record Seller(String name, String avatar,
+			com.socialcoisa.rede.profile.application.NameStyleView nameStyle) {
 	}
 
 	/**

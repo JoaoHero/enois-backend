@@ -29,7 +29,14 @@ import jakarta.transaction.Transactional;
 public class ServiceOfferService {
 
 	private static final int MAX_TITLE = 120;
-	private static final int MAX_DESCRIPTION = 4000;
+	/**
+	 * O teto e o da COLUNA (`service_listings.description varchar(2000)`): a API aceitava 4000 e o
+	 * banco recusava com "Data too long" — a pessoa levava 409 "conflita com o estado atual dos
+	 * dados", sem dizer que o campo era a descricao.
+	 */
+	private static final int MAX_DESCRIPTION = 2000;
+	/** `service_listings.deliverables varchar(1000)` — sem checagem, o limite era o banco. */
+	private static final int MAX_DELIVERABLES = 1000;
 	private static final int MAX_LINK = 500;
 
 	private final ServiceOfferRepository repository;
@@ -191,7 +198,7 @@ public class ServiceOfferService {
 		}
 		if (description.trim().length() > MAX_DESCRIPTION) {
 			throw new ApiException(400, "INVALID_DESCRIPTION",
-				"A descrição passou do limite de 4.000 caracteres.");
+				"A descrição passou do limite de 2.000 caracteres.");
 		}
 		return description.trim();
 	}

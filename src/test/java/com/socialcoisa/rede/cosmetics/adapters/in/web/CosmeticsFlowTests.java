@@ -21,6 +21,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import com.socialcoisa.rede.shared.web.TestAuthHelper;
 import com.socialcoisa.rede.shared.web.TestDatabase;
+import com.socialcoisa.rede.cosmetics.application.CosmeticsService;
 
 /**
  * A loja de cosméticos (plano C3): comprar moldura de avatar com faíscas (débito direto,
@@ -35,6 +36,80 @@ class CosmeticsFlowTests {
 
 	@Autowired
 	private ObjectMapper objectMapper;
+
+        @Autowired
+        private CosmeticsService cosmetics;
+
+        @Test
+        void catalogOrderingsAreImmutableAndDoNotChangeTheSharedCatalog() {
+                var oldest = cosmetics.catalog("oldest");
+                var newest = cosmetics.catalog("newest");
+                org.junit.jupiter.api.Assertions.assertThrows(UnsupportedOperationException.class,
+                                () -> oldest.removeFirst());
+                org.junit.jupiter.api.Assertions.assertThrows(UnsupportedOperationException.class,
+                                () -> newest.add(oldest.getFirst()));
+                org.junit.jupiter.api.Assertions.assertEquals(oldest, cosmetics.catalog("oldest"));
+                org.junit.jupiter.api.Assertions.assertEquals(newest, cosmetics.catalog("newest"));
+        }
+
+        @Test
+        void catalogDefaultsToOldestAndUsesReleaseOrderInsteadOfDeclarationPosition() throws Exception {
+                var result = mockMvc.perform(get("/loja"))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$[0].id").value("moldura-ambar"))
+                        .andExpect(jsonPath("$[0].releaseOrder").value(1))
+                        .andReturn();
+                var items = objectMapper.readTree(result.getResponse().getContentAsString());
+                int previous = 0;
+                for (var item : items) {
+                        int releaseOrder = item.get("releaseOrder").asInt();
+                        org.junit.jupiter.api.Assertions.assertEquals(previous + 1, releaseOrder);
+                        previous = releaseOrder;
+                }
+                // The original frames keep their release order; the seasonal catalog comes after them.
+                org.junit.jupiter.api.Assertions.assertEquals("moldura-radar", items.get(25).get("id").asText());
+                org.junit.jupiter.api.Assertions.assertEquals("tema-saci", items.get(26).get("id").asText());
+                org.junit.jupiter.api.Assertions.assertEquals("emblema-vitoria-halloween",
+                                items.get(items.size() - 1).get("id").asText());
+                var explicit = mockMvc.perform(get("/loja").param("order", "oldest"))
+                        .andExpect(status().isOk()).andReturn();
+                org.junit.jupiter.api.Assertions.assertEquals(items,
+                                objectMapper.readTree(explicit.getResponse().getContentAsString()));
+        }
+
+        @Test
+        void catalogListsNewestFirstByReleaseOrder() throws Exception {
+                var result = mockMvc.perform(get("/loja").param("order", "newest"))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$[0].id").value("emblema-vitoria-halloween"))
+                        .andExpect(jsonPath("$[?(@.id == 'moldura-radar')].releaseOrder").value(26))
+                        .andExpect(jsonPath("$[?(@.id == 'moldura-neon')].releaseOrder").value(25))
+                        .andExpect(jsonPath("$[?(@.id == 'tema-saci')].releaseOrder").value(27))
+                        .andReturn();
+                var items = objectMapper.readTree(result.getResponse().getContentAsString());
+                int previous = items.size() + 1;
+                for (var item : items) {
+                        int releaseOrder = item.get("releaseOrder").asInt();
+                        org.junit.jupiter.api.Assertions.assertEquals(previous - 1, releaseOrder);
+                        previous = releaseOrder;
+                }
+                org.junit.jupiter.api.Assertions.assertEquals("moldura-ambar", items.get(items.size() - 1).get("id").asText());
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = { "", "recent", "OLDEST" })
+        void invalidCatalogOrderIsRejected(String order) throws Exception {
+                mockMvc.perform(get("/loja").param("order", order))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.code").value("INVALID_CATALOG_ORDER"));
+        }
+
+        @Test
+        void invalidSessionDoesNotBecomeAnAnonymousCatalog() throws Exception {
+                mockMvc.perform(get("/loja").header("X-Session-Token", "invalid-catalog-session"))
+                        .andExpect(status().isUnauthorized())
+                        .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+        }
 
 	@Test
 	void catalogBuyEquipAndDoubleBuyRejected() throws Exception {
@@ -91,7 +166,9 @@ class CosmeticsFlowTests {
         @ValueSource(strings = { "moldura-aurora", "moldura-tempestade", "moldura-inferno",
                 "moldura-buraco-negro", "moldura-orbita", "moldura-glacial", "moldura-toxica",
                 "moldura-nebulosa", "moldura-supernova", "moldura-galaxia", "moldura-portal",
-                "moldura-holograma" })
+                "moldura-holograma", "moldura-mare", "moldura-trepadeira", "moldura-vendaval",
+                "moldura-vaga-lumes", "moldura-fliperama", "moldura-circuito", "moldura-neon",
+                "moldura-radar" })
         void animatedFrameAppearsOnPostAndComment(String frame) throws Exception {
                 var buyer = auth("frame_" + frame.substring("moldura-".length()).replace('-', '_'));
                 mockMvc.perform(get("/carteira").header("X-Session-Token", buyer.token())).andExpect(status().isOk());
@@ -168,8 +245,7 @@ class CosmeticsFlowTests {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.user.emailVerified").value(true))
 			.andReturn();
-		var session = objectMapper.readTree(verified.getResponse().getContentAsString());
-		return new TestAuthHelper.AuthSession(session.get("token").asText(),
-				session.get("refreshToken").asText(), TestDatabase.userIdByEmail(email).orElseThrow());
+		return new TestAuthHelper.AuthSession(TestAuthHelper.sessionToken(verified),
+				TestAuthHelper.refreshToken(verified), TestDatabase.userIdByEmail(email).orElseThrow());
 	}
 }

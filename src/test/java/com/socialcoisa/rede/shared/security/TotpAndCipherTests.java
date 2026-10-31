@@ -99,6 +99,13 @@ class TotpAndCipherTests {
 	}
 
 	@Test
+	void cipherRequiresAKeyWhenConfiguredAsRequired() {
+		assertThatThrownBy(() -> new SecretCipher("", true))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessageContaining("REDE_SECURITY_ENCRYPTION_KEY");
+	}
+
+	@Test
 	void cipherRefusesAKeyOfTheWrongSize() {
 		String shortKey = java.util.Base64.getEncoder().encodeToString("chave-curta".getBytes(StandardCharsets.UTF_8));
 		assertThatThrownBy(() -> new SecretCipher(shortKey))

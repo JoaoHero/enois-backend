@@ -1,6 +1,7 @@
 package com.socialcoisa.rede.apiv1;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -32,11 +33,7 @@ import tools.jackson.databind.ObjectMapper;
  * leitura autenticada, escrita e erro — porque é justamente aí que um alias mal feito passa
  * despercebido (a escrita com idempotência, o limite de taxa do login e o envelope de erro).
  */
-@SpringBootTest(properties = {
-	// Mesma configuracao de qa/prd: doc da API desligado (o gateway expoe o backend sem auth).
-	"springdoc.api-docs.enabled=false",
-	"springdoc.swagger-ui.enabled=false",
-})
+@SpringBootTest
 @AutoConfigureMockMvc
 class V1ApiAliasTests {
 
@@ -131,6 +128,28 @@ class V1ApiAliasTests {
 			.andExpect(jsonPath("$.base").value("/v1"))
 			.andExpect(jsonPath("$.endpoints[?(@.path == '/stats/community')]").exists())
 			.andExpect(jsonPath("$.endpoints[?(@.path == '/feed/posts/{postId}')]").exists());
+	}
+
+	@Test
+	void oIndiceDiceQueNaoHaDocumentoOpenApi() throws Exception {
+		// A API nao publica documento OpenAPI: o springdoc saiu do pom no lote de seguranca e nao
+		// existe mais /openapi.json (quem pede recebe a resposta padronizada de caminho fora da
+		// superficie, 200 sem corpo). O indice e o contrato legivel por maquina, entao ele precisa
+		// dizer isso — senao quem integra procura um OpenAPI que nao vem.
+		mockMvc.perform(get("/v1"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.note", containsString("nao publica documento OpenAPI")))
+			.andExpect(jsonPath("$.note", containsString("/developers")));
+	}
+
+	@Test
+	void naoExisteDocumentoOpenApiNoBackend() throws Exception {
+		// Tranca a decisao de seguranca: o caminho nao responde um documento (e nem um 404 de
+		// aplicacao — a resposta de "caminho fora da superficie" e a mesma para qualquer caminho
+		// desconhecido). Se um dia o springdoc voltar, este teste avisa.
+		MvcResult pedido = mockMvc.perform(get("/openapi.json")).andReturn();
+		assertThat(pedido.getResponse().getStatus()).isEqualTo(200);
+		assertThat(pedido.getResponse().getContentAsString()).isEmpty();
 	}
 
 	@Test

@@ -200,11 +200,11 @@ public class SanctionProposalService {
 	private void applySanction(SanctionProposal proposal, String reviewerId, Instant now) {
 		String reference = "proposal:" + proposal.id();
 		if (proposal.type() == SanctionType.BAN) {
-			UserSanction sanction = UserSanction.create("sanc_" + randomId(), proposal.targetUserId(), reference,
+			UserSanction sanction = UserSanction.suspended("sanc_" + randomId(), proposal.targetUserId(), reference,
 				proposal.reason(), now);
 			sanctions.banAuthor(sanction, proposal.targetUserId(), reviewerId, sessions);
-			notifications.create(proposal.targetUserId(), "SANCAO", "sistema", "Conta banida",
-				"Sua conta foi banida por decisão de mais da metade dos moderadores: " + proposal.reason() + ".",
+			notifications.create(proposal.targetUserId(), "SANCAO", "sistema", "Conta suspensa",
+				"Sua conta foi suspensa por decisão de mais da metade dos moderadores: " + proposal.reason() + ".",
 				"/api/penalidades", "Ver");
 		}
 		else {

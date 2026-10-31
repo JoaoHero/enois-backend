@@ -11,7 +11,11 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
-import org.springframework.web.util.UriUtils;
+
+import com.socialcoisa.rede.shared.web.RequestPath;
+import com.socialcoisa.rede.shared.web.TrustedOriginCors;
+import org.springframework.web.util.pattern.PathPattern;
+import org.springframework.web.util.pattern.PathPatternParser;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -42,6 +46,9 @@ import jakarta.servlet.http.HttpServletResponse;
 @Order(Ordered.HIGHEST_PRECEDENCE + 5)
 class RequestOriginFilter extends OncePerRequestFilter {
 
+	private static final PathPattern ADMIN_PATH = PathPatternParser.defaultInstance.parse("/admin/**");
+	private static final PathPattern MODERATION_PATH = PathPatternParser.defaultInstance.parse("/moderation/**");
+
 	static final String CLIENT_ORIGIN_HEADER = "X-Client-Origin";
 
 	private final DeveloperOriginService origins;
@@ -51,7 +58,7 @@ class RequestOriginFilter extends OncePerRequestFilter {
 	private final boolean enforce;
 
 	RequestOriginFilter(DeveloperOriginService origins, OriginAbuseGuard abuse,
-			@Value("${rede.cors.allowed-origins:https://enois.ia.br,http://localhost:5173}") String allowed,
+			@Value("${rede.cors.allowed-origins:https://enois.ia.br}") String allowed,
 			@Value("${rede.origins.trusted:https://*.b7cloud.com.br}") String trusted,
 			@Value("${rede.origins.enforce:true}") boolean enforce) {
 		this.origins = origins;
@@ -64,12 +71,39 @@ class RequestOriginFilter extends OncePerRequestFilter {
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
 			throws ServletException, IOException {
+		// Marked even when enforcement is off: filters that answer early reflect only these origins.
+		boolean trustedBrowserOrigin = false;
+		String browserOrigin = request.getHeader("Origin");
+		if (StringUtils.hasText(browserOrigin) && isTrusted(matchForm(browserOrigin))) {
+			trustedBrowserOrigin = true;
+			TrustedOriginCors.markTrusted(request, browserOrigin);
+		}
 		if (!enforce) {
 			chain.doFilter(request, response);
 			return;
 		}
-		String path = path(request);
+		String path = RequestPath.applicationPath(request);
 		String method = request.getMethod();
+
+		// Preflight é sempre respondido, de qualquer origem: ele não executa nada nem devolve dado,
+		// e a operação real continua passando por este filtro. Recusar o OPTIONS só transforma a
+		// recusa em falha de CORS no navegador — a ação aparece como "sem conexão" sem nunca ter
+		// chegado ao servidor.
+		if ("OPTIONS".equalsIgnoreCase(method)) {
+			String preflightOrigin = request.getHeader("Origin");
+			if (StringUtils.hasText(preflightOrigin)) {
+				setCors(response, preflightOrigin);
+				// O front chama a API cross-origin com o cookie de sessão: sem ecoar a credencial
+				// aqui o navegador descarta o preflight ("Allow-Credentials ... must be 'true'") e a
+				// tela fica sem dados. Só a origem do próprio app recebe isso — origem de terceiro
+				// cadastrada continua saindo sem credencial.
+				if (trustedBrowserOrigin) {
+					response.setHeader("Access-Control-Allow-Credentials", "true");
+				}
+			}
+			preflight(request, response);
+			return;
+		}
 
 		// Fluxos controlados por terceiros ou infraestrutura que não têm origem do app.
 		if (bypass(method, path)) {
@@ -116,7 +150,7 @@ class RequestOriginFilter extends OncePerRequestFilter {
 		}
 
 		// Admin e moderação: só a origem do frontend (confiável), nunca origem de terceiro.
-		if (isAdminPath(path) && !trusted) {
+		if (isAdminPath(request) && !trusted) {
 			if (StringUtils.hasText(origin)) {
 				setCors(response, origin);
 			}
@@ -132,6 +166,8 @@ class RequestOriginFilter extends OncePerRequestFilter {
 			// moderacao nunca abria (`NetworkError` no console). O resto segue no CORS estatico.
 			if ("OPTIONS".equalsIgnoreCase(method) && StringUtils.hasText(origin)) {
 				setCors(response, origin);
+				// Only the app's own origins may send the HttpOnly session cookie.
+				response.setHeader("Access-Control-Allow-Credentials", "true");
 				if (preflight(request, response)) {
 					return;
 				}
@@ -215,17 +251,24 @@ class RequestOriginFilter extends OncePerRequestFilter {
 		if (path.startsWith("/storage/") && ("GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method))) {
 			return true;
 		}
+		// Figurinha de chat: mesmo caso — o `<img>` do texto e da grade nao manda Origin, e a imagem e
+		// conteudo publico de leitura. As rotas de DADOS do catalogo (`/emotes`, `/emotes/index`)
+		// continuam exigindo origem.
+		if (path.startsWith("/emotes/image/") && ("GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method))) {
+			return true;
+		}
 		// Link de confirmação do novo e-mail: clique no cliente de e-mail, sem Origin.
 		if (path.equals("/auth/email/change/confirm") && "GET".equalsIgnoreCase(method)) {
 			return true;
 		}
-		return path.equals("/blogs/descadastrar");
+		// Links de descadastro (newsletter do blog e resumo semanal): clique no cliente de e-mail.
+		return path.equals("/blogs/descadastrar") || path.equals("/notifications/digest/unsubscribe");
 	}
 
 	/** Rotas do painel: somente a origem confiável do frontend. */
-	private static boolean isAdminPath(String path) {
-		return path.equals("/admin") || path.startsWith("/admin/")
-				|| path.equals("/moderation") || path.startsWith("/moderation/");
+	private static boolean isAdminPath(HttpServletRequest request) {
+		var path = RequestPath.segments(request);
+		return ADMIN_PATH.matches(path) || MODERATION_PATH.matches(path);
 	}
 
 	private static void reject(HttpServletResponse response, String code, String message) throws IOException {
@@ -236,28 +279,6 @@ class RequestOriginFilter extends OncePerRequestFilter {
 		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 		response.setCharacterEncoding("UTF-8");
 		response.getWriter().write("{\"code\":\"" + code + "\",\"message\":\"" + message + "\"}");
-	}
-
-	/**
-	 * Caminho DECODIFICADO e dentro da aplicação: sem isso, {@code /%61dmin} escaparia da regra
-	 * de admin (o Spring mapeia para /admin, mas o filtro veria outro texto).
-	 */
-	private static String path(HttpServletRequest request) {
-		String path = request.getRequestURI();
-		String context = request.getContextPath();
-		if (context != null && !context.isEmpty() && path.startsWith(context)) {
-			path = path.substring(context.length());
-		}
-		try {
-			path = UriUtils.decode(path, java.nio.charset.StandardCharsets.UTF_8);
-		}
-		catch (IllegalArgumentException malformed) {
-			return path;
-		}
-		while (path.contains("//")) {
-			path = path.replace("//", "/");
-		}
-		return path;
 	}
 
 	/** Forma de comparação: esquema/host minúsculos e sem barra final. */
